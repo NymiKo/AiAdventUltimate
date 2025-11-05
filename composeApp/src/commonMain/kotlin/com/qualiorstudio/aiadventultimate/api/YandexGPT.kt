@@ -31,11 +31,32 @@ class YandexGPT(
     suspend fun sendMessage(
         messages: List<MessageInfo>,
         modelUri: String = "gpt://$folderId/yandexgpt-lite/latest",
-    ): String {
+    ): StructuredResponse {
         return try {
+            val systemInstruction = """Ты должен всегда отвечать в строгом JSON формате. 
+                |Формат ответа:
+                |{
+                |  "title": "краткий заголовок ответа (2-5 слов)",
+                |  "answer": "твой ответ на вопрос пользователя",
+                |  "question": "исходный вопрос пользователя",
+                |  "tokens": примерное количество токенов в ответе (число)
+                |}
+                |Не добавляй никакого другого текста, только JSON.
+                |
+                |""".trimMargin()
+
+            val modifiedMessages = messages.toMutableList()
+            if (modifiedMessages.isNotEmpty() && modifiedMessages.last().role == "user") {
+                val lastIndex = modifiedMessages.lastIndex
+                modifiedMessages[lastIndex] = MessageInfo(
+                    role = modifiedMessages[lastIndex].role,
+                    text = systemInstruction + modifiedMessages[lastIndex].text
+                )
+            }
+
             val request = ChatRequest(
                 modelUri = modelUri,
-                messages = messages,
+                messages = modifiedMessages,
             )
 
             val response = client.post(baseUrl) {
@@ -46,13 +67,55 @@ class YandexGPT(
 
             if (response.status == HttpStatusCode.UnprocessableEntity) {
                 val errorBody = response.bodyAsText()
-                return "API Validation Error: $errorBody"
+                return StructuredResponse(
+                    title = "Ошибка",
+                    answer = "API Validation Error: $errorBody",
+                    question = "",
+                    tokens = 0
+                )
+            }
+
+            if (!response.status.isSuccess()) {
+                val errorBody = response.bodyAsText()
+                return StructuredResponse(
+                    title = "Ошибка",
+                    answer = "API Error (${response.status.value}): $errorBody",
+                    question = "",
+                    tokens = 0
+                )
             }
 
             val responseBody = response.body<ChatResponse>()
-            responseBody.result.alternatives.first().message.text.removeSurrounding("```").trim()
+            val rawText = responseBody.result.alternatives.first().message.text
+            val actualTokens = responseBody.result.usage.totalTokens.toIntOrNull() ?: 0
+            
+            parseStructuredResponse(rawText, actualTokens)
         } catch (e: Exception) {
-            "Request failed: ${e.message ?: "Unknown error"}"
+            StructuredResponse(
+                title = "Ошибка",
+                answer = "Request failed: ${e.message ?: "Unknown error"}",
+                question = "",
+                tokens = 0
+            )
+        }
+    }
+
+    private fun parseStructuredResponse(text: String, actualTokens: Int): StructuredResponse {
+        return try {
+            val cleanText = text
+                .removeSurrounding("```json", "```")
+                .removeSurrounding("```", "```")
+                .trim()
+
+            val parsed = Json { ignoreUnknownKeys = true }.decodeFromString<StructuredResponse>(cleanText)
+            parsed.copy(tokens = actualTokens)
+        } catch (e: Exception) {
+            StructuredResponse(
+                title = "Ответ",
+                answer = text,
+                question = "",
+                tokens = actualTokens
+            )
         }
     }
 }

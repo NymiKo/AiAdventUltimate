@@ -160,14 +160,55 @@ fun ChatMessageItem(message: ChatMessage) {
                 bottomEnd = if (message.isUser) 4.dp else 16.dp
             )
         ) {
-            Text(
-                text = message.text,
-                modifier = Modifier.padding(12.dp),
-                color = if (message.isUser)
-                    MaterialTheme.colorScheme.onPrimary
-                else
-                    MaterialTheme.colorScheme.onSecondaryContainer
-            )
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                if (!message.isUser && message.title?.isNotBlank() == true) {
+                    Text(
+                        text = message.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (message.isUser)
+                            MaterialTheme.colorScheme.onPrimary
+                        else
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+
+                Text(
+                    text = message.text,
+                    color = if (message.isUser)
+                        MaterialTheme.colorScheme.onPrimary
+                    else
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                )
+
+                if (!message.isUser && (message.originalQuestion != null || message.tokensUsed != null)) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    if (message.originalQuestion?.isNotBlank() == true) {
+                        Text(
+                            text = "Вопрос: ${message.originalQuestion}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (message.isUser)
+                                MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
+                            else
+                                MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                        )
+                    }
+                    
+                    if (message.tokensUsed != null && message.tokensUsed > 0) {
+                        Text(
+                            text = "Токены: ${message.tokensUsed}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (message.isUser)
+                                MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
+                            else
+                                MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+            }
         }
     }
 }

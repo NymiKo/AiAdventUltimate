@@ -40,7 +40,13 @@ class ChatViewModel : ViewModel() {
 
                 val response = yandexGPT.sendMessage(apiMessages)
 
-                val assistantMessage = ChatMessage(text = response, isUser = false)
+                val assistantMessage = ChatMessage(
+                    text = response.answer,
+                    isUser = false,
+                    title = response.title,
+                    originalQuestion = response.question.ifBlank { userMessage },
+                    tokensUsed = response.tokens
+                )
                 _messages.value = _messages.value + assistantMessage
             } catch (e: Exception) {
                 val errorMessage = ChatMessage(

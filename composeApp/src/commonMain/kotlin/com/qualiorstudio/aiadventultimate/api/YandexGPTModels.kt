@@ -53,3 +53,11 @@ data class ChatResponse(
     val result: Result
 )
 
+@Serializable
+data class StructuredResponse(
+    val title: String,
+    val answer: String,
+    val question: String,
+    val tokens: Int
+)
+
