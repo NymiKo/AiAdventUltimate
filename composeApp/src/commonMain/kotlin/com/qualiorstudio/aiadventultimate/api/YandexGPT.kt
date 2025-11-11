@@ -31,10 +31,12 @@ class YandexGPT(
     suspend fun sendMessage(
         messages: List<MessageInfo>,
         modelUri: String = "gpt://$folderId/yandexgpt-lite/latest",
+        temperature: Double = 0.7,
     ): String {
         return try {
             val request = ChatRequest(
                 modelUri = modelUri,
+                completionOptions = CompletionOptions(temperature = temperature),
                 messages = messages,
             )
 

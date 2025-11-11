@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 
 class ChatViewModel : ViewModel() {
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -17,7 +18,7 @@ class ChatViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val apiKey = "API_KEY"
+    private val apiKey = "API-KEY"
     private val folderId = "FOLDER_ID"
     private val yandexGPT = YandexGPT(apiKey, folderId)
 
@@ -31,17 +32,29 @@ class ChatViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
-                val apiMessages = _messages.value.map { message ->
+                val apiMessages = _messages.value.filter { it.isUser || it.temperature == null }.map { message ->
                     MessageInfo(
                         role = if (message.isUser) "user" else "assistant",
                         text = message.text
                     )
                 }
 
-                val response = yandexGPT.sendMessage(apiMessages)
+                val temperatures = listOf(0.0, 0.5, 1.0)
+                
+                val responses = temperatures.map { temp ->
+                    async {
+                        temp to yandexGPT.sendMessage(apiMessages, temperature = temp)
+                    }
+                }.map { it.await() }
 
-                val assistantMessage = ChatMessage(text = response, isUser = false)
-                _messages.value = _messages.value + assistantMessage
+                responses.forEach { (temp, response) ->
+                    val assistantMessage = ChatMessage(
+                        text = response,
+                        isUser = false,
+                        temperature = temp
+                    )
+                    _messages.value = _messages.value + assistantMessage
+                }
             } catch (e: Exception) {
                 val errorMessage = ChatMessage(
                     text = "Ошибка: ${e.message}",
