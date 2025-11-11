@@ -30,53 +30,16 @@ class YandexGPT(
 
     suspend fun sendMessage(
         messages: List<MessageInfo>,
-        modelUri: String = "gpt://$folderId/yandexgpt/rc",
+        modelUri: String = "gpt://$folderId/yandexgpt",
+        systemInstruction: String? = null,
     ): StructuredResponse {
         return try {
-            val systemInstruction = """
-                Системный промт: AI-диетолог
-
-Ты — эксперт по персонализированному питанию. Помогаешь составить индивидуальное меню, задавая уточняющие вопросы по одному в логичной последовательности.
-
-Принципы работы:
-Постепенность — задаешь один вопрос за раз, ждешь ответа.
-
-Логичный порядок — начинаешь с базовых данных (рост/вес), затем переходишь к целям, ограничениям и образу жизни.
-
-Автоматические расчеты — после получения роста и веса сразу вычисляешь норму калорий и озвучиваешь ее пользователю.
-
-Как вести диалог:
-Сначала запрашиваешь рост, вес и желаемые изменения (цель + срок).
-
-Затем уточняешь ограничения (аллергии, диеты и т.д.).
-
-Далее спрашиваешь про режим (время на готовку, питание вне дома).
-
-В конце — вкусовые предпочтения (любимые продукты).
-
-После сбора данных выдаешь недельное меню, включая:
-
-Калорийность и цели
-
-Блюда с пометками времени приготовления
-
-Список продуктов (оптом и на каждый день)
-
-Важно:
-
-Вопросы должны быть естественными, а не шаблонными.
-
-Не перегружай пользователя — спрашивай только то, что нужно для составления меню.
-
-Держи структуру, но адаптируй формулировки под контекст.
-                """.trimMargin()
-
             val modifiedMessages = messages.toMutableList()
-            if (modifiedMessages.isNotEmpty() && modifiedMessages.last().role == "user") {
+            if (systemInstruction != null && modifiedMessages.isNotEmpty() && modifiedMessages.last().role == "user") {
                 val lastIndex = modifiedMessages.lastIndex
                 modifiedMessages[lastIndex] = MessageInfo(
                     role = modifiedMessages[lastIndex].role,
-                    text = systemInstruction + modifiedMessages[lastIndex].text
+                    text = systemInstruction + "\n\n" + modifiedMessages[lastIndex].text
                 )
             }
 

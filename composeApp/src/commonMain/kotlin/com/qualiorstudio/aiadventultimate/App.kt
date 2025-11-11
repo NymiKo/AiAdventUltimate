@@ -19,6 +19,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
+import com.qualiorstudio.aiadventultimate.ui.MarkdownText
+import com.qualiorstudio.aiadventultimate.model.ExpertResponse
+import com.qualiorstudio.aiadventultimate.model.ExpertType
 import com.qualiorstudio.aiadventultimate.viewmodel.ChatViewModel
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
@@ -47,7 +50,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("AI Чат-бот") },
+                title = { Text("AI Панель экспертов") },
                 actions = {
                     IconButton(onClick = { viewModel.clearChat() }) {
                         Icon(
@@ -139,76 +142,123 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
 
 @Composable
 fun ChatMessageItem(message: ChatMessage) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = if (message.isUser) Arrangement.End else Arrangement.Start
-    ) {
-        Card(
-            modifier = Modifier.widthIn(max = 300.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (message.isUser)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.secondaryContainer
-            ),
-            shape = RoundedCornerShape(
-                topStart = 16.dp,
-                topEnd = 16.dp,
-                bottomStart = if (message.isUser) 16.dp else 4.dp,
-                bottomEnd = if (message.isUser) 4.dp else 16.dp
-            )
+    if (message.isUser) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.End
         ) {
-            Column(
-                modifier = Modifier.padding(12.dp)
+            Card(
+                modifier = Modifier.widthIn(max = 300.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                ),
+                shape = RoundedCornerShape(
+                    topStart = 16.dp,
+                    topEnd = 16.dp,
+                    bottomStart = 16.dp,
+                    bottomEnd = 4.dp
+                )
             ) {
-//                if (!message.isUser && message.title?.isNotBlank() == true) {
-//                    Text(
-//                        text = message.title,
-//                        style = MaterialTheme.typography.titleMedium,
-//                        color = if (message.isUser)
-//                            MaterialTheme.colorScheme.onPrimary
-//                        else
-//                            MaterialTheme.colorScheme.onSecondaryContainer
-//                    )
-//                    Spacer(modifier = Modifier.height(4.dp))
-//                }
-
                 Text(
                     text = message.text,
-                    color = if (message.isUser)
-                        MaterialTheme.colorScheme.onPrimary
-                    else
-                        MaterialTheme.colorScheme.onSecondaryContainer
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.padding(12.dp)
                 )
-
-//                if (!message.isUser && (message.originalQuestion != null || message.tokensUsed != null)) {
-//                    Spacer(modifier = Modifier.height(8.dp))
-//
-//                    if (message.originalQuestion?.isNotBlank() == true) {
-//                        Text(
-//                            text = "Вопрос: ${message.originalQuestion}",
-//                            style = MaterialTheme.typography.bodySmall,
-//                            color = if (message.isUser)
-//                                MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
-//                            else
-//                                MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-//                        )
-//                    }
-//
-//                    if (message.tokensUsed != null && message.tokensUsed > 0) {
-//                        Text(
-//                            text = "Токены: ${message.tokensUsed}",
-//                            style = MaterialTheme.typography.bodySmall,
-//                            color = if (message.isUser)
-//                                MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
-//                            else
-//                                MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-//                        )
-//                    }
-//                }
             }
+        }
+    } else {
+        if (message.expertResponses != null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                message.expertResponses.forEach { expertResponse ->
+                    ExpertResponseCard(expertResponse)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.Start
+            ) {
+                Card(
+                    modifier = Modifier.widthIn(max = 300.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    shape = RoundedCornerShape(
+                        topStart = 16.dp,
+                        topEnd = 16.dp,
+                        bottomStart = 4.dp,
+                        bottomEnd = 16.dp
+                    )
+                ) {
+                    Text(
+                        text = message.text,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExpertResponseCard(expertResponse: ExpertResponse) {
+    val expertColor = when (expertResponse.expertType) {
+        ExpertType.ANALYST -> Color(0xFF2196F3)
+        ExpertType.CREATIVE -> Color(0xFFFF9800)
+        ExpertType.CRITIC -> Color(0xFFF44336)
+        ExpertType.PRAGMATIST -> Color(0xFF4CAF50)
+    }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .background(expertColor, RoundedCornerShape(50))
+                )
+                Text(
+                    text = expertResponse.expertName,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (expertResponse.tokensUsed > 0) {
+                    Text(
+                        text = "${expertResponse.tokensUsed} токенов",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            MarkdownText(
+                text = expertResponse.answer,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
