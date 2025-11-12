@@ -24,13 +24,24 @@ class ChatViewModel : ViewModel() {
     fun sendMessage(userMessage: String) {
         if (userMessage.isBlank()) return
 
-        val userChatMessage = ChatMessage(text = userMessage, isUser = true)
-        _messages.value = _messages.value + userChatMessage
-
         _isLoading.value = true
 
         viewModelScope.launch {
             try {
+                val userChatMessage = ChatMessage(text = userMessage, isUser = true)
+                _messages.value = _messages.value + userChatMessage
+
+                val userMessageIndex = _messages.value.lastIndex
+                val userTokens = runCatching { yandexGPT.countTokens(userMessage) }.getOrNull()
+                if (userTokens != null && userTokens > 0) {
+                    val updatedList = _messages.value.toMutableList()
+                    if (userMessageIndex in updatedList.indices) {
+                        updatedList[userMessageIndex] =
+                            updatedList[userMessageIndex].copy(tokensUsed = userTokens)
+                        _messages.value = updatedList
+                    }
+                }
+
                 val apiMessages = _messages.value.map { message ->
                     MessageInfo(
                         role = if (message.isUser) "user" else "assistant",
@@ -40,12 +51,14 @@ class ChatViewModel : ViewModel() {
 
                 val response = yandexGPT.sendMessage(apiMessages)
 
+                val assistantTokens =
+                    runCatching { yandexGPT.countTokens(response.answer) }.getOrElse { 0 }
+
                 val assistantMessage = ChatMessage(
                     text = response.answer,
                     isUser = false,
-                    title = response.title,
                     originalQuestion = response.question.ifBlank { userMessage },
-                    tokensUsed = response.tokens
+                    tokensUsed = assistantTokens
                 )
                 _messages.value = _messages.value + assistantMessage
             } catch (e: Exception) {

@@ -61,3 +61,22 @@ data class StructuredResponse(
     val tokens: Int
 )
 
+@Serializable
+data class TokenizeRequest(
+    val modelUri: String,
+    val text: String,
+)
+
+@Serializable
+data class TokenInfo(
+    val id: Int,
+    val text: String,
+    val special: Boolean = false,
+)
+
+@Serializable
+data class TokenizeResponse(
+    val tokens: List<TokenInfo> = emptyList(),
+    val length: Int = 0,
+)
+
