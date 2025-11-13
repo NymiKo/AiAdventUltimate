@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,6 +35,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
@@ -67,8 +69,10 @@ fun App() {
 fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val contextSummary by viewModel.contextSummary.collectAsState()
     var messageText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    var isContextVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -81,6 +85,18 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
             TopAppBar(
                 title = { Text("AI Чат-бот") },
                 actions = {
+                    TextButton(onClick = { isContextVisible = !isContextVisible }) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (isContextVisible) "Скрыть контекст" else "Показать контекст",
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
                     IconButton(onClick = { viewModel.clearChat() }) {
                         Icon(
                             imageVector = Icons.Default.Delete,
@@ -101,6 +117,24 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            if (isContextVisible) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Text(
+                        text = contextSummary?.takeIf { it.isNotBlank() }
+                            ?: "Контекст пока не сформирован",
+                        modifier = Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
