@@ -21,7 +21,7 @@ class YandexGPT(
     private val client: HttpClient by lazy { createHttpClient() }
     private val baseUrl = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
     private val tokenizerUrl = "https://llm.api.cloud.yandex.net/foundationModels/v1/tokenize"
-    private val defaultModelUri = "gpt://$folderId/yandexgpt-lite/latest"
+    private val defaultModelUri = "gpt://$folderId/yandexgpt/latest"
 
     private fun createHttpClient(): HttpClient {
         return HttpClient {
@@ -40,30 +40,9 @@ class YandexGPT(
         modelUri: String = defaultModelUri,
     ): StructuredResponse {
         return try {
-            val systemInstruction = """Ты должен всегда отвечать в строгом JSON формате. 
-                |Формат ответа:
-                |{
-                |  "title": "краткий заголовок ответа (2-5 слов)",
-                |  "answer": "твой ответ на вопрос пользователя",
-                |  "question": "исходный вопрос пользователя",
-                |  "tokens": 0
-                |}
-                |Поле tokens всегда устанавливай в 0. Не добавляй никакого другого текста, только JSON.
-                |
-                |""".trimMargin()
-
-            val modifiedMessages = messages.toMutableList()
-            if (modifiedMessages.isNotEmpty() && modifiedMessages.last().role == "user") {
-                val lastIndex = modifiedMessages.lastIndex
-                modifiedMessages[lastIndex] = MessageInfo(
-                    role = modifiedMessages[lastIndex].role,
-                    text = systemInstruction + modifiedMessages[lastIndex].text
-                )
-            }
-
             val request = ChatRequest(
                 modelUri = modelUri,
-                messages = modifiedMessages,
+                messages = messages,
             )
 
             val response = client.post(baseUrl) {

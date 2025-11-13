@@ -12,7 +12,7 @@ data class MessageInfo(
 data class CompletionOptions(
     val stream: Boolean = false,
     val temperature: Double = 0.7,
-    val maxTokens: Int = 2000
+    val maxTokens: Int = 2000,
 )
 
 @Serializable
