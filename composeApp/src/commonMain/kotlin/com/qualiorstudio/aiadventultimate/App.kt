@@ -5,8 +5,9 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,25 +30,36 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.MenuOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
+import com.qualiorstudio.aiadventultimate.theme.AiAdventUltimateTheme
 import com.qualiorstudio.aiadventultimate.viewmodel.ChatViewModel
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
 @Composable
 @Preview
 fun App() {
-    MaterialTheme {
-        ChatScreen()
+    val systemDarkTheme = isSystemInDarkTheme()
+    var isDarkTheme by rememberSaveable { mutableStateOf(systemDarkTheme) }
+    AiAdventUltimateTheme(darkTheme = isDarkTheme) {
+        ChatScreen(
+            isDarkTheme = isDarkTheme,
+            onThemeChange = { isDarkTheme = it }
+        )
     }
 }
 
 @Composable
-fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
+fun ChatScreen(
+    isDarkTheme: Boolean,
+    onThemeChange: (Boolean) -> Unit,
+    viewModel: ChatViewModel = viewModel { ChatViewModel() }
+) {
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     var messageText by remember { mutableStateOf("") }
@@ -68,14 +80,16 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF111216))
+            .background(MaterialTheme.colorScheme.background)
     ) {
         Sidebar(
             selectedMode = selectedMode,
             onModeSelect = { selectedMode = it },
-            onClearChat = { viewModel.clearChat() }
+            onClearChat = { viewModel.clearChat() },
+            isDarkTheme = isDarkTheme,
+            onThemeChange = onThemeChange
         )
-        VerticalDivider(color = Color(0xFF1E2026))
+        VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         MainWorkspace(
             modifier = Modifier.weight(1f),
             selectedMode = selectedMode,
@@ -92,7 +106,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
             isAgentPanelVisible = isAgentPanelVisible
         )
         if (selectedMode == WorkspaceMode.Agent && isAgentPanelVisible) {
-            VerticalDivider(color = Color(0xFF1E2026))
+            VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             AgentSelectionPanel(
                 modifier = Modifier
                     .fillMaxHeight()
@@ -118,7 +132,9 @@ private data class SidebarConversation(
 fun Sidebar(
     selectedMode: WorkspaceMode,
     onModeSelect: (WorkspaceMode) -> Unit,
-    onClearChat: () -> Unit
+    onClearChat: () -> Unit,
+    isDarkTheme: Boolean,
+    onThemeChange: (Boolean) -> Unit
 ) {
     val conversations = remember {
         listOf(
@@ -133,7 +149,7 @@ fun Sidebar(
         modifier = Modifier
             .width(280.dp)
             .fillMaxHeight()
-            .background(Color(0xFF14171C))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(horizontal = 20.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
@@ -141,7 +157,7 @@ fun Sidebar(
             Text(
                 text = "AI System",
                 style = MaterialTheme.typography.headlineSmall,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onSurface
             )
             FilledTonalButton(
                 onClick = onClearChat,
@@ -156,7 +172,7 @@ fun Sidebar(
             Text(
                 text = "Режим",
                 style = MaterialTheme.typography.titleMedium,
-                color = Color(0xFF8D95A6)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             SingleChoiceSegmentedButtonRow(
                 modifier = Modifier.fillMaxWidth()
@@ -182,12 +198,12 @@ fun Sidebar(
             Text(
                 text = "Недавние беседы",
                 style = MaterialTheme.typography.titleMedium,
-                color = Color(0xFF8D95A6)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             conversations.forEach { item ->
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = Color(0xFF191D25),
+                    color = MaterialTheme.colorScheme.surface,
                     shape = RoundedCornerShape(18.dp),
                     tonalElevation = 2.dp
                 ) {
@@ -198,17 +214,17 @@ fun Sidebar(
                         Text(
                             text = item.title,
                             style = MaterialTheme.typography.titleMedium,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = item.description,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF9AA2B4)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = item.time,
                             style = MaterialTheme.typography.labelMedium,
-                            color = Color(0xFF5F6677)
+                            color = MaterialTheme.colorScheme.outline
                         )
                     }
                 }
@@ -220,8 +236,23 @@ fun Sidebar(
         Text(
             text = "Настройки",
             style = MaterialTheme.typography.bodyMedium,
-            color = Color(0xFF5F6677)
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Темная тема",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Switch(
+                checked = isDarkTheme,
+                onCheckedChange = { onThemeChange(it) }
+            )
+        }
     }
 }
 
@@ -242,7 +273,7 @@ fun MainWorkspace(
     Column(
         modifier = modifier
             .fillMaxHeight()
-            .background(Color(0xFF0F131A))
+            .background(MaterialTheme.colorScheme.background)
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
@@ -255,12 +286,12 @@ fun MainWorkspace(
                 Text(
                     text = if (selectedMode == WorkspaceMode.Chat) "AI Чат" else "Мультимодальная система",
                     style = MaterialTheme.typography.headlineMedium,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = if (selectedMode == WorkspaceMode.Chat) "Общайтесь с ассистентом и получайте ответы в реальном времени" else "Подключайте агентов и распределяйте задачи между ними",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF8D95A6)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             if (selectedMode == WorkspaceMode.Agent) {
@@ -282,7 +313,7 @@ fun MainWorkspace(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            color = Color(0xFF141820),
+            color = MaterialTheme.colorScheme.surface,
             shape = RoundedCornerShape(24.dp)
         ) {
             Column(
@@ -354,7 +385,7 @@ fun AgentSelectionPanel(modifier: Modifier = Modifier) {
 
     Column(
         modifier = modifier
-            .background(Color(0xFF14171C))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
@@ -362,12 +393,12 @@ fun AgentSelectionPanel(modifier: Modifier = Modifier) {
             Text(
                 text = "Агентная система",
                 style = MaterialTheme.typography.titleLarge,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = "Выберите агентов для совместной работы",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF8D95A6)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
@@ -375,8 +406,8 @@ fun AgentSelectionPanel(modifier: Modifier = Modifier) {
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 tonalElevation = if (agent.isActive) 6.dp else 0.dp,
-                color = if (agent.isActive) Color(0xFF1E2230) else Color(0xFF191D25),
-                border = if (agent.isActive) BorderStroke(1.dp, Color(0xFF4D8DFF)) else null,
+                color = if (agent.isActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                border = if (agent.isActive) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -386,17 +417,17 @@ fun AgentSelectionPanel(modifier: Modifier = Modifier) {
                     Text(
                         text = agent.name,
                         style = MaterialTheme.typography.titleMedium,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = agent.description,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF9AA2B4)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
                         text = if (agent.isActive) "Активен" else "Не активен",
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (agent.isActive) Color(0xFF4D8DFF) else Color(0xFF5F6677)
+                        color = if (agent.isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                     )
                 }
             }
