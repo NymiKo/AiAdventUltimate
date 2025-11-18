@@ -2,8 +2,10 @@ package com.qualiorstudio.aiadventultimate.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.qualiorstudio.aiadventultimate.api.MessageInfo
-import com.qualiorstudio.aiadventultimate.api.YandexGPT
+import com.qualiorstudio.aiadventultimate.ai.AIAgent
+import com.qualiorstudio.aiadventultimate.api.DeepSeek
+import com.qualiorstudio.aiadventultimate.api.DeepSeekMessage
+import com.qualiorstudio.aiadventultimate.mcp.TodoistClient
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,9 +19,12 @@ class ChatViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val apiKey = "API_KEY"
-    private val folderId = "FOLDER_ID"
-    private val yandexGPT = YandexGPT(apiKey, folderId)
+    private val deepSeekApiKey = "API_KEY"
+    private val todoistApiToken = "TOKEN"
+    
+    private val deepSeek = DeepSeek(apiKey = deepSeekApiKey, model = "deepseek-chat")
+    private val todoistClient = TodoistClient(apiToken = todoistApiToken)
+    private val aiAgent = AIAgent(deepSeek = deepSeek, todoistClient = todoistClient)
 
     fun sendMessage(userMessage: String) {
         if (userMessage.isBlank()) return
@@ -31,14 +36,16 @@ class ChatViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
-                val apiMessages = _messages.value.map { message ->
-                    MessageInfo(
-                        role = if (message.isUser) "user" else "assistant",
-                        text = message.text
-                    )
-                }
+                val conversationHistory = _messages.value
+                    .filter { !it.isUser || it != userChatMessage }
+                    .map { message ->
+                        DeepSeekMessage(
+                            role = if (message.isUser) "user" else "assistant",
+                            content = message.text
+                        )
+                    }
 
-                val response = yandexGPT.sendMessage(apiMessages)
+                val response = aiAgent.processMessage(userMessage, conversationHistory)
 
                 val assistantMessage = ChatMessage(text = response, isUser = false)
                 _messages.value = _messages.value + assistantMessage
