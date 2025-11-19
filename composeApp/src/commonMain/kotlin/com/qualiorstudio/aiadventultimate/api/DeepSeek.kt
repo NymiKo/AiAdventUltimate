@@ -8,6 +8,7 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
 
 class DeepSeek(
     private val apiKey: String,
@@ -23,6 +24,7 @@ class DeepSeek(
                     ignoreUnknownKeys = true
                     prettyPrint = true
                     isLenient = true
+                    encodeDefaults = true
                 })
             }
         }
@@ -30,33 +32,55 @@ class DeepSeek(
 
     suspend fun sendMessage(
         messages: List<DeepSeekMessage>,
+        tools: List<DeepSeekTool>? = null,
         temperature: Double = 0.7,
         maxTokens: Int = 2000
-    ): String {
+    ): DeepSeekResponse {
         return try {
             val request = DeepSeekRequest(
                 model = model,
                 messages = messages,
                 temperature = temperature,
-                maxTokens = maxTokens
+                maxTokens = maxTokens,
+                tools = tools,
+                toolChoice = if (tools != null) "auto" else null
             )
 
+            println("=== DeepSeek Request ===")
+            println("Model: $model")
+            println("Messages count: ${messages.size}")
+            println("Tools: ${tools?.size ?: 0}")
+            
+            val requestJson = Json {
+                encodeDefaults = true
+                ignoreUnknownKeys = true
+            }.encodeToString(DeepSeekRequest.serializer(), request)
+            println("Request JSON: $requestJson")
+            println("Messages in request:")
+            request.messages.forEachIndexed { index, msg ->
+                println("  Message[$index]: role=${msg.role}, type=${msg.type}, toolCallId=${msg.toolCallId}, content=${msg.content?.take(50)}")
+            }
+            
             val response = client.post(baseUrl) {
                 header("Authorization", "Bearer $apiKey")
                 contentType(ContentType.Application.Json)
                 setBody(request)
             }
 
+            println("=== DeepSeek Response ===")
+            println("Status: ${response.status}")
+
             if (response.status != HttpStatusCode.OK) {
                 val errorBody = response.bodyAsText()
-                return "API Error: ${response.status.value} - $errorBody"
+                println("Error body: $errorBody")
+                throw Exception("API Error: ${response.status.value} - $errorBody")
             }
 
-            val responseBody = response.body<DeepSeekResponse>()
-            responseBody.choices.firstOrNull()?.message?.content?.trim() 
-                ?: "No response generated"
+            response.body<DeepSeekResponse>()
         } catch (e: Exception) {
-            "Request failed: ${e.message ?: "Unknown error"}"
+            println("Exception in DeepSeek.sendMessage: ${e.message}")
+            e.printStackTrace()
+            throw Exception("Request failed: ${e.message ?: "Unknown error"}")
         }
     }
 }

@@ -1,50 +1,66 @@
 package com.qualiorstudio.aiadventultimate.ai
 
-import com.qualiorstudio.aiadventultimate.api.DeepSeek
-import com.qualiorstudio.aiadventultimate.api.DeepSeekMessage
-import com.qualiorstudio.aiadventultimate.mcp.McpToolCall
-import com.qualiorstudio.aiadventultimate.mcp.TodoistClient
-import kotlinx.serialization.json.Json
+import com.qualiorstudio.aiadventultimate.api.*
+import com.qualiorstudio.aiadventultimate.mcp.McpClient
+import kotlinx.serialization.json.*
 
 class AIAgent(
     private val deepSeek: DeepSeek,
-    private val todoistClient: TodoistClient
+    private val mcpClient: McpClient
 ) {
     private val json = Json { ignoreUnknownKeys = true }
+    private var tools: List<DeepSeekTool> = emptyList()
     
     private val systemPrompt = """
-You are a helpful AI assistant with access to Todoist task management.
+You are a helpful AI assistant with access to task management through Todoist.
 
-Available tools:
-1. get_tasks - Get all tasks or filter by project
-   Parameters: projectId (optional), filter (optional, e.g., "today", "priority 1")
-
-2. create_task - Create a new task
-   Parameters: content (required), description (optional), projectId (optional), priority (optional, 1-4), due (optional, e.g., "today", "tomorrow")
-
-3. update_task - Update an existing task
-   Parameters: taskId (required), content (optional), description (optional), priority (optional), due (optional)
-
-4. close_task - Mark a task as completed
-   Parameters: taskId (required)
-
-5. delete_task - Delete a task
-   Parameters: taskId (required)
-
-6. get_projects - Get all projects
-
-When a user asks to manage tasks, respond with a tool call in this format:
-TOOL_CALL: {
-  "name": "tool_name",
-  "arguments": {
-    "param1": "value1",
-    "param2": "value2"
-  }
-}
-
-If the user's request doesn't require tools, respond normally.
-Always be helpful and friendly.
+When users ask you to manage tasks, use the available tools to help them.
+Be friendly, helpful, and proactive in suggesting ways to organize their tasks.
     """.trimIndent()
+
+    suspend fun initialize() {
+        try {
+            mcpClient.start()
+            val mcpTools = mcpClient.listTools()
+            
+            tools = mcpTools.map { mcpTool ->
+                val normalizedSchema = normalizeSchema(mcpTool.inputSchema)
+                DeepSeekTool(
+                    type = "function",
+                    function = DeepSeekFunction(
+                        name = mcpTool.name,
+                        description = mcpTool.description,
+                        parameters = normalizedSchema
+                    )
+                )
+            }
+            println("Initialized ${tools.size} tools: ${tools.map { it.function.name }}")
+        } catch (e: Exception) {
+            println("Failed to initialize MCP client: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+
+    private fun normalizeSchema(schema: JsonObject): JsonObject {
+        return if (schema.containsKey("type")) {
+            schema
+        } else {
+            buildJsonObject {
+                put("type", "object")
+                if (schema.containsKey("properties")) {
+                    put("properties", schema["properties"]!!)
+                } else {
+                    put("properties", buildJsonObject {})
+                }
+                if (schema.containsKey("required")) {
+                    put("required", schema["required"]!!)
+                }
+                if (schema.containsKey("description")) {
+                    put("description", schema["description"]!!)
+                }
+            }
+        }
+    }
 
     suspend fun processMessage(
         userMessage: String,
@@ -56,57 +72,64 @@ Always be helpful and friendly.
         messages.addAll(conversationHistory)
         messages.add(DeepSeekMessage(role = "user", content = userMessage))
 
-        val response = deepSeek.sendMessage(messages)
-
-        return if (response.contains("TOOL_CALL:")) {
-            val toolCallResult = executeToolCall(response)
-            
-            val updatedMessages = messages.toMutableList()
-            updatedMessages.add(DeepSeekMessage(role = "assistant", content = response))
-            updatedMessages.add(DeepSeekMessage(role = "user", content = "Tool result: $toolCallResult"))
-            
-            deepSeek.sendMessage(updatedMessages)
-        } else {
-            response
-        }
-    }
-
-    private suspend fun executeToolCall(response: String): String {
         return try {
-            val toolCallText = response.substringAfter("TOOL_CALL:").trim()
-            val toolCallJson = if (toolCallText.startsWith("```json")) {
-                toolCallText.substringAfter("```json").substringBefore("```").trim()
-            } else if (toolCallText.startsWith("```")) {
-                toolCallText.substringAfter("```").substringBefore("```").trim()
-            } else {
-                toolCallText
+            println("=== Sending request to DeepSeek ===")
+            println("Tools count: ${tools.size}")
+            tools.forEachIndexed { index, tool ->
+                println("Tool $index: ${tool.function.name}")
+                println("  Parameters: ${tool.function.parameters}")
             }
             
-            val toolCall = json.decodeFromString<McpToolCall>(toolCallJson)
-            val result = todoistClient.executeToolCall(toolCall)
+            var response = deepSeek.sendMessage(messages, tools)
+            var currentMessages = messages.toMutableList()
             
-            if (result.isError) {
-                "Error: ${result.content}"
-            } else {
-                result.content
+            println("Response finish_reason: ${response.choices.firstOrNull()?.finishReason}")
+            
+            while (response.choices.firstOrNull()?.finishReason == "tool_calls") {
+                val assistantMessage = response.choices.first().message
+                currentMessages.add(assistantMessage)
+                
+                val toolCalls = assistantMessage.toolCalls ?: break
+                
+                for (toolCall in toolCalls) {
+                    val functionName = toolCall.function.name
+                    val argumentsStr = toolCall.function.arguments
+                    
+                    try {
+                        val arguments = json.parseToJsonElement(argumentsStr).jsonObject
+                        val result = mcpClient.callTool(functionName, arguments)
+                        
+                        currentMessages.add(
+                            DeepSeekMessage(
+                                role = "tool",
+                                content = result,
+                                toolCallId = toolCall.id,
+                                type = "tool"
+                            )
+                        )
+                    } catch (e: Exception) {
+                        currentMessages.add(
+                            DeepSeekMessage(
+                                role = "tool",
+                                content = "Error executing tool: ${e.message}",
+                                toolCallId = toolCall.id,
+                                type = "tool"
+                            )
+                        )
+                    }
+                }
+                
+                response = deepSeek.sendMessage(currentMessages, tools)
             }
+            
+            response.choices.firstOrNull()?.message?.content?.trim() 
+                ?: "Sorry, I couldn't generate a response."
         } catch (e: Exception) {
-            "Error parsing or executing tool call: ${e.message}"
+            "Error: ${e.message}"
         }
     }
 
-    suspend fun getAvailableTools(): String {
-        return """
-Available Todoist tools:
-- get_tasks: Get all tasks
-- create_task: Create a new task
-- update_task: Update a task
-- close_task: Complete a task
-- delete_task: Delete a task
-- get_projects: Get all projects
-
-Ask me to manage your tasks!
-        """.trimIndent()
+    fun close() {
+        mcpClient.close()
     }
 }
-

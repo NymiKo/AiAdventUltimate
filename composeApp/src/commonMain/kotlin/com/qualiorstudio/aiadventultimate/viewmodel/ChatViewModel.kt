@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.qualiorstudio.aiadventultimate.ai.AIAgent
 import com.qualiorstudio.aiadventultimate.api.DeepSeek
 import com.qualiorstudio.aiadventultimate.api.DeepSeekMessage
-import com.qualiorstudio.aiadventultimate.mcp.TodoistClient
+import com.qualiorstudio.aiadventultimate.mcp.McpClient
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,12 +19,33 @@ class ChatViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _isInitialized = MutableStateFlow(false)
+    val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
+
     private val deepSeekApiKey = "API_KEY"
     private val todoistApiToken = "TOKEN"
     
     private val deepSeek = DeepSeek(apiKey = deepSeekApiKey, model = "deepseek-chat")
-    private val todoistClient = TodoistClient(apiToken = todoistApiToken)
-    private val aiAgent = AIAgent(deepSeek = deepSeek, todoistClient = todoistClient)
+    private val mcpClient = McpClient(
+        command = "/Users/dmitry/IdeaProjects/MCP-Tick-Tick/run-mcp-server.sh",
+        env = mapOf("TODOIST_API_TOKEN" to todoistApiToken)
+    )
+    private val aiAgent = AIAgent(deepSeek = deepSeek, mcpClient = mcpClient)
+
+    init {
+        viewModelScope.launch {
+            try {
+                aiAgent.initialize()
+                _isInitialized.value = true
+            } catch (e: Exception) {
+                val errorMessage = ChatMessage(
+                    text = "Не удалось инициализировать MCP клиент: ${e.message}",
+                    isUser = false
+                )
+                _messages.value = listOf(errorMessage)
+            }
+        }
+    }
 
     fun sendMessage(userMessage: String) {
         if (userMessage.isBlank()) return
@@ -63,6 +84,11 @@ class ChatViewModel : ViewModel() {
 
     fun clearChat() {
         _messages.value = emptyList()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        aiAgent.close()
     }
 }
 

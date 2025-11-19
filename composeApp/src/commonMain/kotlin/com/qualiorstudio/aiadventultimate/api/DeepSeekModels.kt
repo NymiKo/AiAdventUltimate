@@ -2,11 +2,44 @@ package com.qualiorstudio.aiadventultimate.api
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 @Serializable
 data class DeepSeekMessage(
     val role: String,
-    val content: String
+    val content: String? = null,
+    @SerialName("tool_calls")
+    val toolCalls: List<DeepSeekToolCall>? = null,
+    @SerialName("tool_call_id")
+    val toolCallId: String? = null,
+    val type: String? = null
+)
+
+@Serializable
+data class DeepSeekToolCall(
+    val id: String,
+    val type: String = "function",
+    val function: DeepSeekFunctionCall
+)
+
+@Serializable
+data class DeepSeekFunctionCall(
+    val name: String,
+    val arguments: String
+)
+
+@Serializable
+data class DeepSeekTool(
+    val type: String,
+    val function: DeepSeekFunction
+)
+
+@Serializable
+data class DeepSeekFunction(
+    val name: String,
+    val description: String,
+    val parameters: JsonObject
 )
 
 @Serializable
@@ -16,7 +49,10 @@ data class DeepSeekRequest(
     val temperature: Double = 0.7,
     @SerialName("max_tokens")
     val maxTokens: Int = 2000,
-    val stream: Boolean = false
+    val stream: Boolean = false,
+    val tools: List<DeepSeekTool>? = null,
+    @SerialName("tool_choice")
+    val toolChoice: String? = null
 )
 
 @Serializable
@@ -46,4 +82,3 @@ data class DeepSeekResponse(
     val choices: List<DeepSeekChoice>,
     val usage: DeepSeekUsage
 )
-
