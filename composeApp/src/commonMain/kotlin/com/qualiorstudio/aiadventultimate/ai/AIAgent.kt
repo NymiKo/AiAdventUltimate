@@ -129,6 +129,46 @@ Be friendly, helpful, and proactive in suggesting ways to organize their tasks.
         }
     }
 
+    suspend fun getTodayTaskSummary(): String {
+        return try {
+            val getTasksTool = tools.find { it.function.name == "get_tasks" }
+            if (getTasksTool == null) {
+                return "Tool get_tasks not available"
+            }
+            
+            val arguments = buildJsonObject {
+                put("filter", "today")
+            }
+            
+            val tasksResult = mcpClient.callTool("get_tasks", arguments)
+            
+            val summaryPrompt = """
+                Проанализируй следующие задачи на сегодня и предоставь краткие итоги:
+                - Общее количество задач
+                - Количество выполненных задач
+                - Количество невыполненных задач
+                - Приоритетные задачи (если есть)
+                - Краткое резюме
+                
+                Данные задач:
+                $tasksResult
+                
+                Ответ должен быть кратким и структурированным, на русском языке.
+            """.trimIndent()
+            
+            val messages = listOf(
+                DeepSeekMessage(role = "system", content = systemPrompt),
+                DeepSeekMessage(role = "user", content = summaryPrompt)
+            )
+            
+            val response = deepSeek.sendMessage(messages, null)
+            response.choices.firstOrNull()?.message?.content?.trim() 
+                ?: "Не удалось получить итоги по задачам"
+        } catch (e: Exception) {
+            "Ошибка при получении итогов: ${e.message}"
+        }
+    }
+
     fun close() {
         mcpClient.close()
     }

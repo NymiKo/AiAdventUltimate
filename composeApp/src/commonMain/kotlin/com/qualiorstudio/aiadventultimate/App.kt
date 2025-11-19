@@ -11,6 +11,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
+import com.qualiorstudio.aiadventultimate.model.Notification
 import com.qualiorstudio.aiadventultimate.viewmodel.ChatViewModel
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
@@ -35,6 +39,7 @@ fun App() {
 fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val notifications by viewModel.notifications.collectAsState()
     var messageText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -64,74 +69,87 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
             )
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp),
-                state = listState
+            Column(
+                modifier = Modifier.fillMaxSize()
             ) {
-                items(messages) { message ->
-                    ChatMessageItem(message)
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    state = listState
+                ) {
+                    items(messages) { message ->
+                        ChatMessageItem(message)
+                    }
+
+                    if (isLoading) {
+                        item {
+                            TypingIndicator()
+                        }
+                    }
                 }
 
-                if (isLoading) {
-                    item {
-                        TypingIndicator()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextField(
+                        value = messageText,
+                        onValueChange = { messageText = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("Введите сообщение...") },
+                        enabled = !isLoading,
+                        shape = RoundedCornerShape(24.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            disabledIndicatorColor = Color.Transparent
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    if (!isLoading && messageText.isNotBlank()) {
+                        FloatingActionButton(
+                            onClick = {
+                                viewModel.sendMessage(messageText)
+                                messageText = ""
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Отправить"
+                            )
+                        }
+                    } else {
+                        FloatingActionButton(
+                            onClick = { }
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Отправить",
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            )
+                        }
                     }
                 }
             }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextField(
-                    value = messageText,
-                    onValueChange = { messageText = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Введите сообщение...") },
-                    enabled = !isLoading,
-                    shape = RoundedCornerShape(24.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        disabledIndicatorColor = Color.Transparent
-                    )
+            
+            notifications.forEach { notification ->
+                NotificationCard(
+                    notification = notification,
+                    onToggleExpanded = { viewModel.toggleNotificationExpanded(notification.id) },
+                    onDismiss = { viewModel.dismissNotification(notification.id) },
+                    modifier = Modifier.align(Alignment.TopEnd)
                 )
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                if (!isLoading && messageText.isNotBlank()) {
-                    FloatingActionButton(
-                        onClick = {
-                            viewModel.sendMessage(messageText)
-                            messageText = ""
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Отправить"
-                        )
-                    }
-                } else {
-                    FloatingActionButton(
-                        onClick = { }
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Отправить",
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                        )
-                    }
-                }
             }
         }
     }
@@ -224,4 +242,77 @@ fun TypingDot(delay: Int) {
                 shape = RoundedCornerShape(50)
             )
     )
+}
+
+@Composable
+fun NotificationCard(
+    notification: Notification,
+    onToggleExpanded: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .widthIn(max = 400.dp)
+            .padding(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = notification.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                
+                Row {
+                    IconButton(
+                        onClick = onToggleExpanded,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (notification.isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (notification.isExpanded) "Свернуть" else "Развернуть",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Закрыть",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+            
+            AnimatedVisibility(
+                visible = notification.isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Text(
+                    text = notification.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .fillMaxWidth()
+                )
+            }
+        }
+    }
 }
