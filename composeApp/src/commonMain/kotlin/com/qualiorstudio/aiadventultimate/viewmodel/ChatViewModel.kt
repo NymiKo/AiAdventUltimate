@@ -57,7 +57,7 @@ class ChatViewModel : ViewModel() {
         periodicJob?.cancel()
         periodicJob = viewModelScope.launch {
             while (true) {
-                delay(10_000)
+                delay(100_000)
                 fetchTodayTaskSummary()
             }
         }
@@ -105,10 +105,11 @@ class ChatViewModel : ViewModel() {
         
         viewModelScope.launch {
             try {
-                val response = aiAgent.processMessage(text, conversationHistory.toList())
-                val aiMessage = ChatMessage(text = response, isUser = false)
+                val result = aiAgent.processMessage(text, conversationHistory.toList())
+                val aiMessage = ChatMessage(text = result.response, isUser = false)
                 _messages.value = _messages.value + aiMessage
-                conversationHistory.add(DeepSeekMessage(role = "assistant", content = response))
+                conversationHistory.clear()
+                conversationHistory.addAll(result.updatedHistory)
             } catch (e: Exception) {
                 val errorMessage = ChatMessage(
                     text = "Ошибка: ${e.message}",

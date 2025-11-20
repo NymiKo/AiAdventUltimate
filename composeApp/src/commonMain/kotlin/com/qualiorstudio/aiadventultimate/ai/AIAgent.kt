@@ -4,6 +4,11 @@ import com.qualiorstudio.aiadventultimate.api.*
 import com.qualiorstudio.aiadventultimate.mcp.McpClient
 import kotlinx.serialization.json.*
 
+data class ProcessMessageResult(
+    val response: String,
+    val updatedHistory: List<DeepSeekMessage>
+)
+
 class AIAgent(
     private val deepSeek: DeepSeek,
     private val mcpClient: McpClient
@@ -65,39 +70,52 @@ Be friendly, helpful, and proactive in suggesting ways to organize their tasks.
     suspend fun processMessage(
         userMessage: String,
         conversationHistory: List<DeepSeekMessage>
-    ): String {
+    ): ProcessMessageResult {
         val messages = mutableListOf(
             DeepSeekMessage(role = "system", content = systemPrompt)
         )
         messages.addAll(conversationHistory)
-        messages.add(DeepSeekMessage(role = "user", content = userMessage))
+        val userMsg = DeepSeekMessage(role = "user", content = userMessage)
+        messages.add(userMsg)
 
         return try {
             println("=== Sending request to DeepSeek ===")
             println("Tools count: ${tools.size}")
             tools.forEachIndexed { index, tool ->
                 println("Tool $index: ${tool.function.name}")
-                println("  Parameters: ${tool.function.parameters}")
             }
             
             var response = deepSeek.sendMessage(messages, tools)
             var currentMessages = messages.toMutableList()
             
-            println("Response finish_reason: ${response.choices.firstOrNull()?.finishReason}")
+            var iterationCount = 0
+            val maxIterations = 10
             
-            while (response.choices.firstOrNull()?.finishReason == "tool_calls") {
+            println("Initial response finish_reason: ${response.choices.firstOrNull()?.finishReason}")
+            
+            while (response.choices.firstOrNull()?.finishReason == "tool_calls" && iterationCount < maxIterations) {
+                iterationCount++
+                println("=== Tool Call Chain Iteration $iterationCount ===")
+                
                 val assistantMessage = response.choices.first().message
                 currentMessages.add(assistantMessage)
                 
                 val toolCalls = assistantMessage.toolCalls ?: break
                 
+                println("Processing ${toolCalls.size} tool call(s)")
+                
                 for (toolCall in toolCalls) {
                     val functionName = toolCall.function.name
                     val argumentsStr = toolCall.function.arguments
                     
+                    println("  Calling tool: $functionName")
+                    println("  Arguments: $argumentsStr")
+                    
                     try {
                         val arguments = json.parseToJsonElement(argumentsStr).jsonObject
                         val result = mcpClient.callTool(functionName, arguments)
+                        
+                        println("  Tool result: ${result.take(200)}...")
                         
                         currentMessages.add(
                             DeepSeekMessage(
@@ -108,6 +126,8 @@ Be friendly, helpful, and proactive in suggesting ways to organize their tasks.
                             )
                         )
                     } catch (e: Exception) {
+                        println("  Tool error: ${e.message}")
+                        e.printStackTrace()
                         currentMessages.add(
                             DeepSeekMessage(
                                 role = "tool",
@@ -119,13 +139,44 @@ Be friendly, helpful, and proactive in suggesting ways to organize their tasks.
                     }
                 }
                 
+                println("Sending follow-up request with ${currentMessages.size} messages")
+                println("Tools will be included: ${tools.isNotEmpty()}")
                 response = deepSeek.sendMessage(currentMessages, tools)
+                println("Follow-up response finish_reason: ${response.choices.firstOrNull()?.finishReason}")
             }
             
-            response.choices.firstOrNull()?.message?.content?.trim() 
+            if (iterationCount >= maxIterations) {
+                println("WARNING: Reached maximum iterations ($maxIterations) in tool call chain")
+            }
+            
+            val finalAssistantMessage = response.choices.firstOrNull()?.message
+            val finalContent = finalAssistantMessage?.content?.trim() 
                 ?: "Sorry, I couldn't generate a response."
+            
+            if (finalAssistantMessage != null && finalAssistantMessage.content != null) {
+                currentMessages.add(finalAssistantMessage)
+            }
+            
+            val updatedHistory = currentMessages
+                .drop(1)
+                .filter { it.role != "system" }
+            
+            println("=== Final Response ===")
+            println("Total iterations: $iterationCount")
+            println("Final content length: ${finalContent.length}")
+            println("Updated history size: ${updatedHistory.size}")
+            
+            ProcessMessageResult(
+                response = finalContent,
+                updatedHistory = updatedHistory
+            )
         } catch (e: Exception) {
-            "Error: ${e.message}"
+            println("Error in processMessage: ${e.message}")
+            e.printStackTrace()
+            ProcessMessageResult(
+                response = "Error: ${e.message}",
+                updatedHistory = conversationHistory
+            )
         }
     }
 
