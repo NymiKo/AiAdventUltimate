@@ -87,6 +87,10 @@ class DesktopVoiceOutputService : VoiceOutputService {
             
             println("🔊 Синтезируем речь: ${text.take(50)}...")
             
+            val voice = getEnvVar("JARVIS_VOICE").ifEmpty { "ermil" }
+            val speed = getEnvVar("JARVIS_SPEED").ifEmpty { "0.85" }
+            val emotion = getEnvVar("JARVIS_EMOTION").ifEmpty { "good" }
+            
             val response: HttpResponse = client.post("https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize") {
                 header("Authorization", "Api-Key $apiKey")
                 contentType(ContentType.Application.FormUrlEncoded)
@@ -94,9 +98,9 @@ class DesktopVoiceOutputService : VoiceOutputService {
                     listOf(
                         "text" to text,
                         "lang" to "ru-RU",
-                        "voice" to "filipp",
-                        "emotion" to "neutral",
-                        "speed" to "1.0",
+                        "voice" to voice,
+                        "emotion" to emotion,
+                        "speed" to speed,
                         "format" to "lpcm",
                         "sampleRateHertz" to "48000",
                         "folderId" to folderId
