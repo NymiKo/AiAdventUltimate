@@ -8,6 +8,7 @@ import com.qualiorstudio.aiadventultimate.api.DeepSeekMessage
 import com.qualiorstudio.aiadventultimate.mcp.McpClient
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
 import com.qualiorstudio.aiadventultimate.model.Notification
+import com.qualiorstudio.aiadventultimate.voice.createVoiceOutputService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,7 @@ class ChatViewModel : ViewModel() {
     
     private val deepSeek = DeepSeek(apiKey = deepSeekApiKey)
     private val aiAgent = AIAgent(deepSeek, mcpClient)
+    private val voiceOutputService = createVoiceOutputService()
     
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -110,6 +112,14 @@ class ChatViewModel : ViewModel() {
                 _messages.value = _messages.value + aiMessage
                 conversationHistory.clear()
                 conversationHistory.addAll(result.updatedHistory)
+                
+                if (voiceOutputService.isSupported() && result.shortPhrase.isNotBlank()) {
+                    launch {
+                        voiceOutputService.speak(result.shortPhrase).onFailure { error ->
+                            println("Voice output error: ${error.message}")
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 val errorMessage = ChatMessage(
                     text = "Ошибка: ${e.message}",
@@ -144,6 +154,7 @@ class ChatViewModel : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         periodicJob?.cancel()
+        voiceOutputService.stopSpeaking()
         aiAgent.close()
     }
 }

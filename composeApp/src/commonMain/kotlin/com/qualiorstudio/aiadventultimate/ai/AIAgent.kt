@@ -6,6 +6,7 @@ import kotlinx.serialization.json.*
 
 data class ProcessMessageResult(
     val response: String,
+    val shortPhrase: String,
     val updatedHistory: List<DeepSeekMessage>
 )
 
@@ -161,13 +162,17 @@ Be friendly, helpful, and proactive in suggesting ways to organize their tasks.
                 .drop(1)
                 .filter { it.role != "system" }
             
+            val shortPhrase = generateShortPhrase(finalContent)
+            
             println("=== Final Response ===")
             println("Total iterations: $iterationCount")
             println("Final content length: ${finalContent.length}")
+            println("Short phrase: $shortPhrase")
             println("Updated history size: ${updatedHistory.size}")
             
             ProcessMessageResult(
                 response = finalContent,
+                shortPhrase = shortPhrase,
                 updatedHistory = updatedHistory
             )
         } catch (e: Exception) {
@@ -175,8 +180,36 @@ Be friendly, helpful, and proactive in suggesting ways to organize their tasks.
             e.printStackTrace()
             ProcessMessageResult(
                 response = "Error: ${e.message}",
+                shortPhrase = "Произошла ошибка",
                 updatedHistory = conversationHistory
             )
+        }
+    }
+    
+    private suspend fun generateShortPhrase(fullResponse: String): String {
+        return try {
+            val prompt = """
+                На основе следующего ответа создай краткую фразу (максимум 1-2 предложения) для озвучивания голосом ассистента в стиле Джарвиса.
+                Фраза должна быть вежливой, лаконичной и описывать суть выполненного действия или ответа.
+                
+                Полный ответ:
+                $fullResponse
+                
+                Верни только краткую фразу без дополнительных пояснений.
+            """.trimIndent()
+            
+            val messages = listOf(
+                DeepSeekMessage(role = "system", content = "Ты помощник, который создает краткие фразы для озвучивания."),
+                DeepSeekMessage(role = "user", content = prompt)
+            )
+            
+            val response = deepSeek.sendMessage(messages, null)
+            response.choices.firstOrNull()?.message?.content?.trim()
+                ?.take(200)
+                ?: "Готово"
+        } catch (e: Exception) {
+            println("Failed to generate short phrase: ${e.message}")
+            "Готово"
         }
     }
 

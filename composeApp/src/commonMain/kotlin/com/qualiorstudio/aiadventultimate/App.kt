@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +25,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
 import com.qualiorstudio.aiadventultimate.model.Notification
 import com.qualiorstudio.aiadventultimate.viewmodel.ChatViewModel
+import com.qualiorstudio.aiadventultimate.voice.createVoiceInputService
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
 @Composable
@@ -42,6 +45,9 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
     val notifications by viewModel.notifications.collectAsState()
     var messageText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val voiceService = remember { createVoiceInputService() }
+    var isRecording by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -105,8 +111,8 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
                         value = messageText,
                         onValueChange = { messageText = it },
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text("Введите сообщение...") },
-                        enabled = !isLoading,
+                        placeholder = { Text(if (isRecording) "Идет запись..." else "Введите сообщение...") },
+                        enabled = !isLoading && !isRecording,
                         shape = RoundedCornerShape(24.dp),
                         colors = TextFieldDefaults.colors(
                             focusedIndicatorColor = Color.Transparent,
@@ -116,6 +122,54 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
                     )
 
                     Spacer(modifier = Modifier.width(8.dp))
+
+                    if (voiceService.isSupported() && !isLoading) {
+                        if (isRecording) {
+                            FloatingActionButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        isRecording = false
+                                        val result = voiceService.stopRecording()
+                                        result.onSuccess { text ->
+                                            if (text.isNotBlank()) {
+                                                messageText = text
+                                            }
+                                        }
+                                        result.onFailure { error ->
+                                            println("Voice input error: ${error.message}")
+                                        }
+                                    }
+                                },
+                                containerColor = MaterialTheme.colorScheme.error
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = "Остановить запись"
+                                )
+                            }
+                        } else {
+                            IconButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        try {
+                                            voiceService.startRecording()
+                                            isRecording = true
+                                        } catch (e: Exception) {
+                                            println("Failed to start recording: ${e.message}")
+                                        }
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = "Голосовой ввод",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
 
                     if (!isLoading && messageText.isNotBlank()) {
                         FloatingActionButton(
