@@ -48,7 +48,7 @@ data class DeepSeekRequest(
     val messages: List<DeepSeekMessage>,
     val temperature: Double = 0.7,
     @SerialName("max_tokens")
-    val maxTokens: Int = 2000,
+    val maxTokens: Int = 4000,
     val stream: Boolean = false,
     val tools: List<DeepSeekTool>? = null,
     @SerialName("tool_choice")

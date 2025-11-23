@@ -8,6 +8,7 @@ import com.qualiorstudio.aiadventultimate.api.DeepSeekMessage
 import com.qualiorstudio.aiadventultimate.mcp.McpClient
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
 import com.qualiorstudio.aiadventultimate.model.Notification
+import com.qualiorstudio.aiadventultimate.utils.getEnv
 import com.qualiorstudio.aiadventultimate.voice.createVoiceOutputService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -21,14 +22,44 @@ import kotlinx.serialization.json.put
 class ChatViewModel : ViewModel() {
     private val deepSeekApiKey = "sk-b21fe1a6400b4757840a27ebc1a5de2a"
     private val todoistApiToken = "76ac119dd13a2876d041926445ff1156fda25419"
+    private val githubToken = getEnv("GITHUB_PERSONAL_ACCESS_TOKEN")
     
-    private val mcpClient = McpClient(
-        command = "/Users/dmitry/IdeaProjects/MCP-Tick-Tick/run-mcp-server.sh",
-        env = mapOf("TODOIST_API_TOKEN" to todoistApiToken)
-    )
+    init {
+        if (githubToken.isNotBlank()) {
+            println("GitHub token loaded successfully (length: ${githubToken.length})")
+        } else {
+            println("Warning: GITHUB_PERSONAL_ACCESS_TOKEN not found in environment variables or .env file")
+            println("Please check:")
+            println("  1. .env file exists in project root")
+            println("  2. .env file contains: GITHUB_PERSONAL_ACCESS_TOKEN=your_token")
+            println("  3. Or set environment variable: export GITHUB_PERSONAL_ACCESS_TOKEN=your_token")
+        }
+    }
+    
+    private val mcpClients = buildList {
+        add(
+            McpClient(
+                command = "/Users/dmitry/IdeaProjects/MCP-Tick-Tick/run-mcp-server.sh",
+                args = emptyList(),
+                env = mapOf("TODOIST_API_TOKEN" to todoistApiToken)
+            )
+        )
+        if (githubToken.isNotBlank()) {
+            println("Adding GitHub MCP server to clients list")
+            add(
+                McpClient(
+                    command = "npx",
+                    args = listOf("-y", "@modelcontextprotocol/server-github"),
+                    env = mapOf("GITHUB_PERSONAL_ACCESS_TOKEN" to githubToken)
+                )
+            )
+        } else {
+            println("Warning: GITHUB_PERSONAL_ACCESS_TOKEN not set. GitHub MCP server will not be available.")
+        }
+    }
     
     private val deepSeek = DeepSeek(apiKey = deepSeekApiKey)
-    private val aiAgent = AIAgent(deepSeek, mcpClient)
+    private val aiAgent = AIAgent(deepSeek, mcpClients)
     private val voiceOutputService = createVoiceOutputService()
     
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())

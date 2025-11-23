@@ -11,6 +11,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 actual class McpClient actual constructor(
     private val command: String,
+    private val args: List<String>,
     private val env: Map<String, String>
 ) {
     private var process: Process? = null
@@ -23,7 +24,11 @@ actual class McpClient actual constructor(
     }
 
     actual suspend fun start() = withContext(Dispatchers.IO) {
-        val processBuilder = ProcessBuilder("sh", command)
+        val processBuilder = if (args.isEmpty()) {
+            ProcessBuilder("sh", command)
+        } else {
+            ProcessBuilder(listOf(command) + args)
+        }
         processBuilder.environment().putAll(env)
         
         process = processBuilder.start()

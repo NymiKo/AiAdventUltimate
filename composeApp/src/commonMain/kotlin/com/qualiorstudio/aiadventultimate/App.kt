@@ -47,6 +47,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
     val listState = rememberLazyListState()
     val voiceService = remember { createVoiceInputService() }
     var isRecording by remember { mutableStateOf(false) }
+    var isProcessingVoice by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(messages.size) {
@@ -111,8 +112,16 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
                         value = messageText,
                         onValueChange = { messageText = it },
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text(if (isRecording) "Идет запись..." else "Введите сообщение...") },
-                        enabled = !isLoading && !isRecording,
+                        placeholder = { 
+                            Text(
+                                when {
+                                    isRecording -> "Идет запись..."
+                                    isProcessingVoice -> "Обработка голоса..."
+                                    else -> "Введите сообщение..."
+                                }
+                            )
+                        },
+                        enabled = !isLoading && !isRecording && !isProcessingVoice,
                         shape = RoundedCornerShape(24.dp),
                         colors = TextFieldDefaults.colors(
                             focusedIndicatorColor = Color.Transparent,
@@ -124,47 +133,58 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
                     Spacer(modifier = Modifier.width(8.dp))
 
                     if (voiceService.isSupported() && !isLoading) {
-                        if (isRecording) {
-                            FloatingActionButton(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        isRecording = false
-                                        val result = voiceService.stopRecording()
-                                        result.onSuccess { text ->
-                                            if (text.isNotBlank()) {
-                                                messageText = text
+                        when {
+                            isRecording -> {
+                                FloatingActionButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            isRecording = false
+                                            isProcessingVoice = true
+                                            val result = voiceService.stopRecording()
+                                            result.onSuccess { text ->
+                                                if (text.isNotBlank()) {
+                                                    messageText = text
+                                                    viewModel.sendMessage(text)
+                                                    messageText = ""
+                                                }
+                                                isProcessingVoice = false
+                                            }
+                                            result.onFailure { error ->
+                                                println("Voice input error: ${error.message}")
+                                                isProcessingVoice = false
                                             }
                                         }
-                                        result.onFailure { error ->
-                                            println("Voice input error: ${error.message}")
-                                        }
-                                    }
-                                },
-                                containerColor = MaterialTheme.colorScheme.error
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Mic,
-                                    contentDescription = "Остановить запись"
-                                )
-                            }
-                        } else {
-                            IconButton(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        try {
-                                            voiceService.startRecording()
-                                            isRecording = true
-                                        } catch (e: Exception) {
-                                            println("Failed to start recording: ${e.message}")
-                                        }
-                                    }
+                                    },
+                                    containerColor = MaterialTheme.colorScheme.error
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Mic,
+                                        contentDescription = "Остановить запись"
+                                    )
                                 }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Mic,
-                                    contentDescription = "Голосовой ввод",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+                            }
+                            isProcessingVoice -> {
+                                ProcessingVoiceButton()
+                            }
+                            else -> {
+                                IconButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            try {
+                                                voiceService.startRecording()
+                                                isRecording = true
+                                            } catch (e: Exception) {
+                                                println("Failed to start recording: ${e.message}")
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Mic,
+                                        contentDescription = "Голосовой ввод",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
                         
@@ -273,6 +293,41 @@ fun TypingIndicator() {
                 }
             }
         }
+    }
+}
+
+@Composable
+fun ProcessingVoiceButton() {
+    val infiniteTransition = rememberInfiniteTransition()
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.9f,
+        targetValue = 1.1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
+    
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.7f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
+
+    FloatingActionButton(
+        onClick = {},
+        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = alpha),
+        modifier = Modifier
+    ) {
+        Icon(
+            imageVector = Icons.Default.Mic,
+            contentDescription = "Обработка голоса",
+            modifier = Modifier.size((24 * scale).dp),
+            tint = MaterialTheme.colorScheme.onPrimaryContainer
+        )
     }
 }
 

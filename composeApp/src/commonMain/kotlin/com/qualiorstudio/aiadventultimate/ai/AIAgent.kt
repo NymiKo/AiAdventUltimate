@@ -12,37 +12,55 @@ data class ProcessMessageResult(
 
 class AIAgent(
     private val deepSeek: DeepSeek,
-    private val mcpClient: McpClient
+    private val mcpClients: List<McpClient>
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private var tools: List<DeepSeekTool> = emptyList()
+    private val clientMap = mutableMapOf<String, McpClient>()
     
     private val systemPrompt = """
-You are a helpful AI assistant with access to task management through Todoist.
+You are a helpful AI assistant with access to multiple tools:
+- Todoist: for task management
+- GitHub: for repository management, issues, pull requests, and code operations
 
-When users ask you to manage tasks, use the available tools to help them.
-Be friendly, helpful, and proactive in suggesting ways to organize their tasks.
+When users ask you to manage tasks, use Todoist tools.
+When users ask about GitHub repositories, issues, or code, use GitHub tools.
+Be friendly, helpful, and proactive in suggesting ways to organize their work.
     """.trimIndent()
 
     suspend fun initialize() {
         try {
-            mcpClient.start()
-            val mcpTools = mcpClient.listTools()
+            val allTools = mutableListOf<DeepSeekTool>()
             
-            tools = mcpTools.map { mcpTool ->
-                val normalizedSchema = normalizeSchema(mcpTool.inputSchema)
-                DeepSeekTool(
-                    type = "function",
-                    function = DeepSeekFunction(
-                        name = mcpTool.name,
-                        description = mcpTool.description,
-                        parameters = normalizedSchema
-                    )
-                )
+            mcpClients.forEachIndexed { index, client ->
+                try {
+                    client.start()
+                    val mcpTools = client.listTools()
+                    
+                    mcpTools.forEach { mcpTool ->
+                        val normalizedSchema = normalizeSchema(mcpTool.inputSchema)
+                        val tool = DeepSeekTool(
+                            type = "function",
+                            function = DeepSeekFunction(
+                                name = mcpTool.name,
+                                description = mcpTool.description,
+                                parameters = normalizedSchema
+                            )
+                        )
+                        allTools.add(tool)
+                        clientMap[mcpTool.name] = client
+                    }
+                    println("Initialized ${mcpTools.size} tools from client $index: ${mcpTools.map { it.name }}")
+                } catch (e: Exception) {
+                    println("Failed to initialize MCP client $index: ${e.message}")
+                    e.printStackTrace()
+                }
             }
-            println("Initialized ${tools.size} tools: ${tools.map { it.function.name }}")
+            
+            tools = allTools
+            println("Total initialized ${tools.size} tools: ${tools.map { it.function.name }}")
         } catch (e: Exception) {
-            println("Failed to initialize MCP client: ${e.message}")
+            println("Failed to initialize MCP clients: ${e.message}")
             e.printStackTrace()
         }
     }
@@ -114,7 +132,10 @@ Be friendly, helpful, and proactive in suggesting ways to organize their tasks.
                     
                     try {
                         val arguments = json.parseToJsonElement(argumentsStr).jsonObject
-                        val result = mcpClient.callTool(functionName, arguments)
+                        val client = clientMap[functionName] 
+                            ?: throw Exception("No MCP client found for tool: $functionName")
+                        
+                        val result = client.callTool(functionName, arguments)
                         
                         println("  Tool result: ${result.take(200)}...")
                         
@@ -237,7 +258,10 @@ Be friendly, helpful, and proactive in suggesting ways to organize their tasks.
                 put("filter", "today")
             }
             
-            val tasksResult = mcpClient.callTool("get_tasks", arguments)
+            val client = clientMap["get_tasks"] 
+                ?: return "MCP client for get_tasks not available"
+            
+            val tasksResult = client.callTool("get_tasks", arguments)
             
             val summaryPrompt = """
                 Проанализируй следующие задачи на сегодня и предоставь краткие итоги:
@@ -267,6 +291,6 @@ Be friendly, helpful, and proactive in suggesting ways to organize their tasks.
     }
 
     fun close() {
-        mcpClient.close()
+        mcpClients.forEach { it.close() }
     }
 }

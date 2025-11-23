@@ -34,7 +34,7 @@ class DeepSeek(
         messages: List<DeepSeekMessage>,
         tools: List<DeepSeekTool>? = null,
         temperature: Double = 0.7,
-        maxTokens: Int = 2000
+        maxTokens: Int = 4000
     ): DeepSeekResponse {
         return try {
             val request = DeepSeekRequest(

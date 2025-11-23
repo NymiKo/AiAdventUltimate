@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonObject
 
 expect class McpClient(
     command: String,
+    args: List<String> = emptyList(),
     env: Map<String, String> = emptyMap()
 ) {
     suspend fun start()

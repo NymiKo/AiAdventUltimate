@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonObject
 
 actual class McpClient actual constructor(
     private val command: String,
+    private val args: List<String>,
     private val env: Map<String, String>
 ) {
     actual suspend fun start() {
