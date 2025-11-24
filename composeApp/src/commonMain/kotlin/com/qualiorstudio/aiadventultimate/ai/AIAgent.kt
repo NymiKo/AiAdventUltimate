@@ -1,7 +1,6 @@
 package com.qualiorstudio.aiadventultimate.ai
 
 import com.qualiorstudio.aiadventultimate.api.*
-import com.qualiorstudio.aiadventultimate.mcp.McpClient
 import kotlinx.serialization.json.*
 
 data class ProcessMessageResult(
@@ -11,79 +10,18 @@ data class ProcessMessageResult(
 )
 
 class AIAgent(
-    private val deepSeek: DeepSeek,
-    private val mcpClients: List<McpClient>
+    private val deepSeek: DeepSeek
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private var tools: List<DeepSeekTool> = emptyList()
-    private val clientMap = mutableMapOf<String, McpClient>()
     
     private val systemPrompt = """
-You are a helpful AI assistant with access to multiple tools:
-- Todoist: for task management
-- GitHub: for repository management, issues, pull requests, and code operations
-
-When users ask you to manage tasks, use Todoist tools.
-When users ask about GitHub repositories, issues, or code, use GitHub tools.
-Be friendly, helpful, and proactive in suggesting ways to organize their work.
+You are a helpful AI assistant.
+Be friendly, helpful, and proactive.
     """.trimIndent()
 
     suspend fun initialize() {
-        try {
-            val allTools = mutableListOf<DeepSeekTool>()
-            
-            mcpClients.forEachIndexed { index, client ->
-                try {
-                    client.start()
-                    val mcpTools = client.listTools()
-                    
-                    mcpTools.forEach { mcpTool ->
-                        val normalizedSchema = normalizeSchema(mcpTool.inputSchema)
-                        val tool = DeepSeekTool(
-                            type = "function",
-                            function = DeepSeekFunction(
-                                name = mcpTool.name,
-                                description = mcpTool.description,
-                                parameters = normalizedSchema
-                            )
-                        )
-                        allTools.add(tool)
-                        clientMap[mcpTool.name] = client
-                    }
-                    println("Initialized ${mcpTools.size} tools from client $index: ${mcpTools.map { it.name }}")
-                } catch (e: Exception) {
-                    println("Failed to initialize MCP client $index: ${e.message}")
-                    e.printStackTrace()
-                }
-            }
-            
-            tools = allTools
-            println("Total initialized ${tools.size} tools: ${tools.map { it.function.name }}")
-        } catch (e: Exception) {
-            println("Failed to initialize MCP clients: ${e.message}")
-            e.printStackTrace()
-        }
-    }
-
-    private fun normalizeSchema(schema: JsonObject): JsonObject {
-        return if (schema.containsKey("type")) {
-            schema
-        } else {
-            buildJsonObject {
-                put("type", "object")
-                if (schema.containsKey("properties")) {
-                    put("properties", schema["properties"]!!)
-                } else {
-                    put("properties", buildJsonObject {})
-                }
-                if (schema.containsKey("required")) {
-                    put("required", schema["required"]!!)
-                }
-                if (schema.containsKey("description")) {
-                    put("description", schema["description"]!!)
-                }
-            }
-        }
+        tools = emptyList()
     }
 
     suspend fun processMessage(
@@ -131,18 +69,11 @@ Be friendly, helpful, and proactive in suggesting ways to organize their work.
                     println("  Arguments: $argumentsStr")
                     
                     try {
-                        val arguments = json.parseToJsonElement(argumentsStr).jsonObject
-                        val client = clientMap[functionName] 
-                            ?: throw Exception("No MCP client found for tool: $functionName")
-                        
-                        val result = client.callTool(functionName, arguments)
-                        
-                        println("  Tool result: ${result.take(200)}...")
-                        
+                        println("  Tool call received but no tools available")
                         currentMessages.add(
                             DeepSeekMessage(
                                 role = "tool",
-                                content = result,
+                                content = "Tool $functionName is not available",
                                 toolCallId = toolCall.id,
                                 type = "tool"
                             )
@@ -247,50 +178,6 @@ Be friendly, helpful, and proactive in suggesting ways to organize their work.
         }
     }
 
-    suspend fun getTodayTaskSummary(): String {
-        return try {
-            val getTasksTool = tools.find { it.function.name == "get_tasks" }
-            if (getTasksTool == null) {
-                return "Tool get_tasks not available"
-            }
-            
-            val arguments = buildJsonObject {
-                put("filter", "today")
-            }
-            
-            val client = clientMap["get_tasks"] 
-                ?: return "MCP client for get_tasks not available"
-            
-            val tasksResult = client.callTool("get_tasks", arguments)
-            
-            val summaryPrompt = """
-                Проанализируй следующие задачи на сегодня и предоставь краткие итоги:
-                - Общее количество задач
-                - Количество выполненных задач
-                - Количество невыполненных задач
-                - Приоритетные задачи (если есть)
-                - Краткое резюме
-                
-                Данные задач:
-                $tasksResult
-                
-                Ответ должен быть кратким и структурированным, на русском языке.
-            """.trimIndent()
-            
-            val messages = listOf(
-                DeepSeekMessage(role = "system", content = systemPrompt),
-                DeepSeekMessage(role = "user", content = summaryPrompt)
-            )
-            
-            val response = deepSeek.sendMessage(messages, null)
-            response.choices.firstOrNull()?.message?.content?.trim() 
-                ?: "Не удалось получить итоги по задачам"
-        } catch (e: Exception) {
-            "Ошибка при получении итогов: ${e.message}"
-        }
-    }
-
     fun close() {
-        mcpClients.forEach { it.close() }
     }
 }

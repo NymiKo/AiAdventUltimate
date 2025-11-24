@@ -5,16 +5,15 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,11 +22,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
-import com.qualiorstudio.aiadventultimate.model.Notification
+import com.qualiorstudio.aiadventultimate.ui.EmbeddingScreenContent
 import com.qualiorstudio.aiadventultimate.viewmodel.ChatViewModel
+import com.qualiorstudio.aiadventultimate.viewmodel.EmbeddingViewModel
 import com.qualiorstudio.aiadventultimate.voice.createVoiceInputService
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.ui.tooling.preview.Preview
+import java.io.File
 
 @Composable
 @Preview
@@ -39,10 +41,13 @@ fun App() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
+fun ChatScreen(
+    viewModel: ChatViewModel = viewModel { ChatViewModel() },
+    embeddingViewModel: EmbeddingViewModel = viewModel { EmbeddingViewModel() }
+) {
+    var currentScreen by remember { mutableStateOf("chat") }
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
-    val notifications by viewModel.notifications.collectAsState()
     var messageText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val voiceService = remember { createVoiceInputService() }
@@ -59,13 +64,23 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("AI Чат-бот") },
+                title = { Text(if (currentScreen == "chat") "AI Чат-бот" else "Эмбеддинги") },
                 actions = {
-                    IconButton(onClick = { viewModel.clearChat() }) {
+                    IconButton(
+                        onClick = { currentScreen = if (currentScreen == "chat") "embeddings" else "chat" }
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Очистить чат"
+                            imageVector = Icons.Default.Storage,
+                            contentDescription = if (currentScreen == "chat") "Эмбеддинги" else "Чат"
                         )
+                    }
+                    if (currentScreen == "chat") {
+                        IconButton(onClick = { viewModel.clearChat() }) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Очистить чат"
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -81,9 +96,74 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            Column(
-                modifier = Modifier.fillMaxSize()
-            ) {
+            when (currentScreen) {
+                "embeddings" -> {
+                    EmbeddingScreenContent(
+                        viewModel = embeddingViewModel,
+                        onFileSelected = { filePath ->
+                            if (filePath != null && filePath.isNotEmpty()) {
+                                coroutineScope.launch {
+                                    try {
+                                        val file = File(filePath)
+                                        val htmlContent = file.readText()
+                                        val fileName = file.name
+                                        embeddingViewModel.processHtmlFile(htmlContent, fileName)
+                                    } catch (e: Exception) {
+                                        println("Failed to load file: ${e.message}")
+                                    }
+                                }
+                            }
+                        }
+                    )
+                }
+                else -> {
+                    ChatContent(
+                        messages = messages,
+                        isLoading = isLoading,
+                        messageText = messageText,
+                        onMessageTextChange = { messageText = it },
+                        listState = listState,
+                        voiceService = voiceService,
+                        isRecording = isRecording,
+                        isProcessingVoice = isProcessingVoice,
+                        onIsRecordingChange = { isRecording = it },
+                        onIsProcessingVoiceChange = { isProcessingVoice = it },
+                        onSendMessage = {
+                            val currentText = messageText
+                            viewModel.sendMessage(currentText)
+                            messageText = ""
+                        },
+                        onSendMessageWithText = { text ->
+                            viewModel.sendMessage(text)
+                            messageText = ""
+                        },
+                        coroutineScope = coroutineScope
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChatContent(
+    messages: List<ChatMessage>,
+    isLoading: Boolean,
+    messageText: String,
+    onMessageTextChange: (String) -> Unit,
+    listState: LazyListState,
+    voiceService: com.qualiorstudio.aiadventultimate.voice.VoiceInputService,
+    isRecording: Boolean,
+    isProcessingVoice: Boolean,
+    onIsRecordingChange: (Boolean) -> Unit,
+    onIsProcessingVoiceChange: (Boolean) -> Unit,
+    onSendMessage: () -> Unit,
+    onSendMessageWithText: (String) -> Unit,
+    coroutineScope: CoroutineScope
+) {
+    Column(
+        modifier = Modifier.fillMaxSize()
+    ) {
                 LazyColumn(
                     modifier = Modifier
                         .weight(1f)
@@ -110,7 +190,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
                 ) {
                     TextField(
                         value = messageText,
-                        onValueChange = { messageText = it },
+                        onValueChange = onMessageTextChange,
                         modifier = Modifier.weight(1f),
                         placeholder = { 
                             Text(
@@ -138,20 +218,18 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
                                 FloatingActionButton(
                                     onClick = {
                                         coroutineScope.launch {
-                                            isRecording = false
-                                            isProcessingVoice = true
+                                            onIsRecordingChange(false)
+                                            onIsProcessingVoiceChange(true)
                                             val result = voiceService.stopRecording()
                                             result.onSuccess { text ->
                                                 if (text.isNotBlank()) {
-                                                    messageText = text
-                                                    viewModel.sendMessage(text)
-                                                    messageText = ""
+                                                    onSendMessageWithText(text)
                                                 }
-                                                isProcessingVoice = false
+                                                onIsProcessingVoiceChange(false)
                                             }
                                             result.onFailure { error ->
                                                 println("Voice input error: ${error.message}")
-                                                isProcessingVoice = false
+                                                onIsProcessingVoiceChange(false)
                                             }
                                         }
                                     },
@@ -172,7 +250,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
                                         coroutineScope.launch {
                                             try {
                                                 voiceService.startRecording()
-                                                isRecording = true
+                                                onIsRecordingChange(true)
                                             } catch (e: Exception) {
                                                 println("Failed to start recording: ${e.message}")
                                             }
@@ -194,8 +272,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
                     if (!isLoading && messageText.isNotBlank()) {
                         FloatingActionButton(
                             onClick = {
-                                viewModel.sendMessage(messageText)
-                                messageText = ""
+                                onSendMessage()
                             }
                         ) {
                             Icon(
@@ -216,18 +293,8 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel { ChatViewModel() }) {
                     }
                 }
             }
-            
-            notifications.forEach { notification ->
-                NotificationCard(
-                    notification = notification,
-                    onToggleExpanded = { viewModel.toggleNotificationExpanded(notification.id) },
-                    onDismiss = { viewModel.dismissNotification(notification.id) },
-                    modifier = Modifier.align(Alignment.TopEnd)
-                )
-            }
         }
-    }
-}
+
 
 @Composable
 fun ChatMessageItem(message: ChatMessage) {
@@ -351,77 +418,4 @@ fun TypingDot(delay: Int) {
                 shape = RoundedCornerShape(50)
             )
     )
-}
-
-@Composable
-fun NotificationCard(
-    notification: Notification,
-    onToggleExpanded: () -> Unit,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .widthIn(max = 400.dp)
-            .padding(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
-        shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = notification.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f)
-                )
-                
-                Row {
-                    IconButton(
-                        onClick = onToggleExpanded,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (notification.isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = if (notification.isExpanded) "Свернуть" else "Развернуть",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Закрыть",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-            
-            AnimatedVisibility(
-                visible = notification.isExpanded,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                Text(
-                    text = notification.content,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier
-                        .padding(top = 8.dp)
-                        .fillMaxWidth()
-                )
-            }
-        }
-    }
 }
