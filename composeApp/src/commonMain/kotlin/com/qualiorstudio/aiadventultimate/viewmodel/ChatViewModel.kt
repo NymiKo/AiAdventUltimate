@@ -3,6 +3,7 @@ package com.qualiorstudio.aiadventultimate.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.qualiorstudio.aiadventultimate.ai.AIAgent
+import com.qualiorstudio.aiadventultimate.ai.RAGService
 import com.qualiorstudio.aiadventultimate.api.DeepSeek
 import com.qualiorstudio.aiadventultimate.api.DeepSeekMessage
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
@@ -16,7 +17,8 @@ class ChatViewModel : ViewModel() {
     private val deepSeekApiKey = "sk-b21fe1a6400b4757840a27ebc1a5de2a"
     
     private val deepSeek = DeepSeek(apiKey = deepSeekApiKey)
-    private val aiAgent = AIAgent(deepSeek)
+    private val ragService = RAGService()
+    private val aiAgent = AIAgent(deepSeek, ragService)
     private val voiceOutputService = createVoiceOutputService()
     
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -24,6 +26,9 @@ class ChatViewModel : ViewModel() {
     
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+    
+    private val _useRAG = MutableStateFlow(true)
+    val useRAG: StateFlow<Boolean> = _useRAG.asStateFlow()
     
     private var conversationHistory = mutableListOf<DeepSeekMessage>()
     
@@ -49,7 +54,7 @@ class ChatViewModel : ViewModel() {
         
         viewModelScope.launch {
             try {
-                val result = aiAgent.processMessage(text, conversationHistory.toList())
+                val result = aiAgent.processMessage(text, conversationHistory.toList(), _useRAG.value)
                 val aiMessage = ChatMessage(text = result.response, isUser = false)
                 _messages.value = _messages.value + aiMessage
                 conversationHistory.clear()
@@ -79,10 +84,19 @@ class ChatViewModel : ViewModel() {
         conversationHistory.clear()
     }
     
+    fun toggleRAG() {
+        _useRAG.value = !_useRAG.value
+    }
+    
+    fun setUseRAG(enabled: Boolean) {
+        _useRAG.value = enabled
+    }
+    
     override fun onCleared() {
         super.onCleared()
         voiceOutputService.stopSpeaking()
         aiAgent.close()
+        ragService.close()
     }
 }
 

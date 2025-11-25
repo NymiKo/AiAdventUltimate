@@ -13,21 +13,23 @@ import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
 actual fun FilePickerButton(
-    onFileSelected: (String?) -> Unit,
+    onFilesSelected: (List<String>) -> Unit,
     enabled: Boolean
 ) {
     Button(
         onClick = {
             val fileChooser = JFileChooser(System.getProperty("user.home"))
             fileChooser.fileFilter = FileNameExtensionFilter("HTML Files", "html", "htm")
-            fileChooser.dialogTitle = "Выберите HTML файл"
+            fileChooser.dialogTitle = "Выберите HTML файлы"
+            fileChooser.isMultiSelectionEnabled = true
             
             val result = fileChooser.showOpenDialog(null)
             if (result == JFileChooser.APPROVE_OPTION) {
-                val selectedFile = fileChooser.selectedFile
-                onFileSelected(selectedFile.absolutePath)
+                val selectedFiles = fileChooser.selectedFiles
+                val filePaths = selectedFiles.map { it.absolutePath }
+                onFilesSelected(filePaths)
             } else {
-                onFileSelected(null)
+                onFilesSelected(emptyList())
             }
         },
         enabled = enabled,
@@ -39,7 +41,7 @@ actual fun FilePickerButton(
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(8.dp))
-        Text("Загрузить HTML файл")
+        Text("Загрузить HTML файлы")
     }
 }
 

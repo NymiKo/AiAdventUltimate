@@ -18,18 +18,23 @@ import androidx.compose.ui.platform.LocalContext
 
 @Composable
 actual fun FilePickerButton(
-    onFileSelected: (String?) -> Unit,
+    onFilesSelected: (List<String>) -> Unit,
     enabled: Boolean
 ) {
     val context = LocalContext.current
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val uri = result.data?.data
-        if (uri != null) {
+        val uris = result.data?.clipData?.let { clipData ->
+            (0 until clipData.itemCount).mapNotNull { index ->
+                clipData.getItemAt(index).uri
+            }
+        } ?: result.data?.data?.let { listOf(it) } ?: emptyList()
+        
+        val filePaths = uris.mapNotNull { uri ->
             try {
                 val inputStream = context.contentResolver.openInputStream(uri)
-                val tempFile = File(context.cacheDir, "temp_${System.currentTimeMillis()}.html")
+                val tempFile = File(context.cacheDir, "temp_${System.currentTimeMillis()}_${uris.indexOf(uri)}.html")
                 val outputStream = FileOutputStream(tempFile)
                 
                 inputStream?.use { input ->
@@ -38,19 +43,20 @@ actual fun FilePickerButton(
                     }
                 }
                 
-                onFileSelected(tempFile.absolutePath)
+                tempFile.absolutePath
             } catch (e: Exception) {
-                onFileSelected(null)
+                null
             }
-        } else {
-            onFileSelected(null)
         }
+        
+        onFilesSelected(filePaths)
     }
     
     Button(
         onClick = {
             val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
                 type = "text/html"
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                 addCategory(Intent.CATEGORY_OPENABLE)
             }
             filePickerLauncher.launch(intent)
@@ -64,7 +70,7 @@ actual fun FilePickerButton(
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(8.dp))
-        Text("Загрузить HTML файл")
+        Text("Загрузить HTML файлы")
     }
 }
 

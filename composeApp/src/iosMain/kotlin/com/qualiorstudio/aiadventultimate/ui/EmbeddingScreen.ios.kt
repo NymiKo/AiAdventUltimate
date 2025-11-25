@@ -10,11 +10,11 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 actual fun FilePickerButton(
-    onFileSelected: (String?) -> Unit,
+    onFilesSelected: (List<String>) -> Unit,
     enabled: Boolean
 ) {
     Button(
-        onClick = { onFileSelected(null) },
+        onClick = { onFilesSelected(emptyList()) },
         enabled = false,
         modifier = Modifier.fillMaxWidth()
     ) {

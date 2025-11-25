@@ -10,7 +10,8 @@ data class ProcessMessageResult(
 )
 
 class AIAgent(
-    private val deepSeek: DeepSeek
+    private val deepSeek: DeepSeek,
+    private val ragService: RAGService? = null
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private var tools: List<DeepSeekTool> = emptyList()
@@ -26,13 +27,29 @@ Be friendly, helpful, and proactive.
 
     suspend fun processMessage(
         userMessage: String,
-        conversationHistory: List<DeepSeekMessage>
+        conversationHistory: List<DeepSeekMessage>,
+        useRAG: Boolean = true
     ): ProcessMessageResult {
+        val enrichedMessage = if (useRAG && ragService != null && ragService.isAvailable()) {
+            try {
+                println("=== RAG: Обогащаю вопрос контекстом ===")
+                ragService.processWithRAG(userMessage)
+            } catch (e: Exception) {
+                println("RAG: Ошибка при обогащении контекста: ${e.message}")
+                userMessage
+            }
+        } else {
+            if (!useRAG) {
+                println("=== RAG: Отключен, используем исходный вопрос ===")
+            }
+            userMessage
+        }
+        
         val messages = mutableListOf(
             DeepSeekMessage(role = "system", content = systemPrompt)
         )
         messages.addAll(conversationHistory)
-        val userMsg = DeepSeekMessage(role = "user", content = userMessage)
+        val userMsg = DeepSeekMessage(role = "user", content = enrichedMessage)
         messages.add(userMsg)
 
         return try {
@@ -179,5 +196,6 @@ Be friendly, helpful, and proactive.
     }
 
     fun close() {
+        ragService?.close()
     }
 }

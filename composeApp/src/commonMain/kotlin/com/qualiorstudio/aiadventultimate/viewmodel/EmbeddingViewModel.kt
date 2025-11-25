@@ -19,6 +19,9 @@ data class EmbeddingProgress(
     val totalSteps: Int = 0,
     val currentChunk: Int = 0,
     val totalChunks: Int = 0,
+    val currentFile: Int = 0,
+    val totalFiles: Int = 0,
+    val currentFileName: String = "",
     val status: String = "",
     val isProcessing: Boolean = false
 )
@@ -70,18 +73,90 @@ class EmbeddingViewModel(
         }
     }
     
-    suspend fun processHtmlFile(
-        htmlContent: String,
-        fileName: String,
+    suspend fun processHtmlFiles(
+        filePaths: List<String>,
         model: String? = null
     ): Result<Int> {
         return try {
+            val modelToUse = model ?: _selectedModel.value
+            var totalChunksProcessed = 0
+            var successfulFiles = 0
+            
             _progress.value = EmbeddingProgress(
                 isProcessing = true,
-                status = "Извлечение текста из HTML...",
-                currentStep = 1,
+                status = "Обработка ${filePaths.size} файлов...",
+                currentFile = 0,
+                totalFiles = filePaths.size,
                 totalSteps = 3
             )
+            
+            filePaths.forEachIndexed { fileIndex, filePath ->
+                val file = java.io.File(filePath)
+                val fileName = file.name
+                
+                _progress.value = _progress.value.copy(
+                    currentFile = fileIndex + 1,
+                    currentFileName = fileName,
+                    status = "Обработка файла ${fileIndex + 1}/${filePaths.size}: $fileName"
+                )
+                
+                try {
+                    val htmlContent = file.readText()
+                    val result = processHtmlFile(
+                        htmlContent = htmlContent,
+                        fileName = fileName,
+                        model = modelToUse,
+                        updateProgress = { status, step, totalSteps ->
+                            _progress.value = _progress.value.copy(
+                                status = "$status ($fileName)",
+                                currentStep = step,
+                                totalSteps = totalSteps
+                            )
+                        }
+                    )
+                    
+                    result.onSuccess { chunksCount ->
+                        totalChunksProcessed += chunksCount
+                        successfulFiles++
+                    }.onFailure { error ->
+                        println("Failed to process file $fileName: ${error.message}")
+                    }
+                } catch (e: Exception) {
+                    println("Failed to read file $fileName: ${e.message}")
+                }
+            }
+            
+            loadIndexData()
+            
+            try {
+                openFileInSystem(indexFilePath)
+            } catch (e: Exception) {
+                println("Failed to open file automatically: ${e.message}")
+            }
+            
+            _progress.value = EmbeddingProgress(
+                isProcessing = false,
+                status = "Готово! Обработано $successfulFiles из ${filePaths.size} файлов. Всего чанков: $totalChunksProcessed. Файл открыт в системе."
+            )
+            
+            Result.success(totalChunksProcessed)
+        } catch (e: Exception) {
+            _progress.value = EmbeddingProgress(
+                isProcessing = false,
+                status = "Ошибка: ${e.message}"
+            )
+            Result.failure(e)
+        }
+    }
+    
+    private suspend fun processHtmlFile(
+        htmlContent: String,
+        fileName: String,
+        model: String? = null,
+        updateProgress: (String, Int, Int) -> Unit = { _, _, _ -> }
+    ): Result<Int> {
+        return try {
+            updateProgress("Извлечение текста из HTML...", 1, 3)
             
             val text = htmlParser.extractText(htmlContent)
             val title = htmlParser.extractTitle(htmlContent) ?: fileName
@@ -98,10 +173,7 @@ class EmbeddingViewModel(
                 text
             }
             
-            _progress.value = _progress.value.copy(
-                status = "Разбивка текста на чанки...",
-                currentStep = 2
-            )
+            updateProgress("Разбивка текста на чанки...", 2, 3)
             
             val chunks = pipeline.chunker.chunkText(processedText)
             
@@ -109,12 +181,7 @@ class EmbeddingViewModel(
                 return Result.failure(Exception("Слишком много чанков (${chunks.size}). Файл слишком большой для обработки."))
             }
             
-            _progress.value = _progress.value.copy(
-                status = "Генерация эмбеддингов...",
-                currentStep = 3,
-                currentChunk = 0,
-                totalChunks = chunks.size
-            )
+            updateProgress("Генерация эмбеддингов...", 3, 3)
             
             val modelToUse = model ?: _selectedModel.value
             val embeddings = mutableListOf<List<Double>>()
@@ -125,7 +192,8 @@ class EmbeddingViewModel(
                 
                 _progress.value = _progress.value.copy(
                     currentChunk = index + 1,
-                    status = "Генерация эмбеддингов... (${index + 1}/${chunks.size})"
+                    totalChunks = chunks.size,
+                    status = "Генерация эмбеддингов для $fileName... (${index + 1}/${chunks.size})"
                 )
             }
             
@@ -143,25 +211,9 @@ class EmbeddingViewModel(
             }
             
             index.addChunks(embeddingChunks)
-            loadIndexData()
-            
-            try {
-                openFileInSystem(indexFilePath)
-            } catch (e: Exception) {
-                println("Failed to open file automatically: ${e.message}")
-            }
-            
-            _progress.value = EmbeddingProgress(
-                isProcessing = false,
-                status = "Готово! Обработано ${embeddingChunks.size} чанков. Файл открыт в системе."
-            )
             
             Result.success(embeddingChunks.size)
         } catch (e: Exception) {
-            _progress.value = EmbeddingProgress(
-                isProcessing = false,
-                status = "Ошибка: ${e.message}"
-            )
             Result.failure(e)
         }
     }

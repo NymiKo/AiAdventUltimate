@@ -48,6 +48,7 @@ fun ChatScreen(
     var currentScreen by remember { mutableStateOf("chat") }
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val useRAG by viewModel.useRAG.collectAsState()
     var messageText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val voiceService = remember { createVoiceInputService() }
@@ -66,6 +67,35 @@ fun ChatScreen(
             TopAppBar(
                 title = { Text(if (currentScreen == "chat") "AI Чат-бот" else "Эмбеддинги") },
                 actions = {
+                    if (currentScreen == "chat") {
+                        Row(
+                            modifier = Modifier.padding(end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "RAG",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Switch(
+                                checked = useRAG,
+                                onCheckedChange = { viewModel.setUseRAG(it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                    checkedTrackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
+                                    uncheckedThumbColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
+                                    uncheckedTrackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.3f)
+                                )
+                            )
+                        }
+                        IconButton(onClick = { viewModel.clearChat() }) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Очистить чат"
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = { currentScreen = if (currentScreen == "chat") "embeddings" else "chat" }
                     ) {
@@ -73,14 +103,6 @@ fun ChatScreen(
                             imageVector = Icons.Default.Storage,
                             contentDescription = if (currentScreen == "chat") "Эмбеддинги" else "Чат"
                         )
-                    }
-                    if (currentScreen == "chat") {
-                        IconButton(onClick = { viewModel.clearChat() }) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Очистить чат"
-                            )
-                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -100,16 +122,13 @@ fun ChatScreen(
                 "embeddings" -> {
                     EmbeddingScreenContent(
                         viewModel = embeddingViewModel,
-                        onFileSelected = { filePath ->
-                            if (filePath != null && filePath.isNotEmpty()) {
+                        onFilesSelected = { filePaths ->
+                            if (filePaths.isNotEmpty()) {
                                 coroutineScope.launch {
                                     try {
-                                        val file = File(filePath)
-                                        val htmlContent = file.readText()
-                                        val fileName = file.name
-                                        embeddingViewModel.processHtmlFile(htmlContent, fileName)
+                                        embeddingViewModel.processHtmlFiles(filePaths)
                                     } catch (e: Exception) {
-                                        println("Failed to load file: ${e.message}")
+                                        println("Failed to process files: ${e.message}")
                                     }
                                 }
                             }

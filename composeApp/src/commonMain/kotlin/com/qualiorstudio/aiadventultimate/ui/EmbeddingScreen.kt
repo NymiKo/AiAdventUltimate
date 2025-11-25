@@ -15,14 +15,14 @@ import com.qualiorstudio.aiadventultimate.viewmodel.EmbeddingViewModel
 
 @Composable
 expect fun FilePickerButton(
-    onFileSelected: (String?) -> Unit,
+    onFilesSelected: (List<String>) -> Unit,
     enabled: Boolean
 )
 
 @Composable
 fun EmbeddingScreenContent(
     viewModel: EmbeddingViewModel = viewModel { EmbeddingViewModel() },
-    onFileSelected: (String?) -> Unit
+    onFilesSelected: (List<String>) -> Unit
 ) {
     val progress by viewModel.progress.collectAsState()
     val availableModels by viewModel.availableModels.collectAsState()
@@ -122,9 +122,9 @@ fun EmbeddingScreenContent(
         }
         
         FilePickerButton(
-            onFileSelected = { filePath ->
-                if (filePath != null) {
-                    onFileSelected(filePath)
+            onFilesSelected = { filePaths ->
+                if (filePaths.isNotEmpty()) {
+                    onFilesSelected(filePaths)
                 }
             },
             enabled = !progress.isProcessing && selectedModel != null
@@ -146,6 +146,31 @@ fun EmbeddingScreenContent(
                         text = progress.status,
                         style = MaterialTheme.typography.bodyLarge
                     )
+                    
+                    if (progress.totalFiles > 0) {
+                        Text(
+                            text = "Файл ${progress.currentFile} / ${progress.totalFiles}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        if (progress.currentFileName.isNotEmpty()) {
+                            Text(
+                                text = progress.currentFileName,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                            )
+                        }
+                        
+                        LinearProgressIndicator(
+                            progress = {
+                                if (progress.totalFiles > 0) {
+                                    progress.currentFile.toFloat() / progress.totalFiles.toFloat()
+                                } else {
+                                    0f
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                     
                     if (progress.totalChunks > 0) {
                         LinearProgressIndicator(
