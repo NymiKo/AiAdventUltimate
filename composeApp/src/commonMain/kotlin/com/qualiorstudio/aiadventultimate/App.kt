@@ -17,18 +17,26 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
 import com.qualiorstudio.aiadventultimate.model.ChatResponseVariant
 import com.qualiorstudio.aiadventultimate.ui.EmbeddingScreenContent
+import com.qualiorstudio.aiadventultimate.ui.SettingsScreen
+import com.qualiorstudio.aiadventultimate.theme.AiAdventUltimateTheme
 import com.qualiorstudio.aiadventultimate.viewmodel.ChatViewModel
 import com.qualiorstudio.aiadventultimate.viewmodel.EmbeddingViewModel
+import com.qualiorstudio.aiadventultimate.viewmodel.SettingsViewModel
 import com.qualiorstudio.aiadventultimate.voice.createVoiceInputService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -38,27 +46,41 @@ import java.io.File
 @Composable
 @Preview
 fun App() {
-    MaterialTheme {
-        ChatScreen()
+    val settingsViewModel: SettingsViewModel = viewModel { SettingsViewModel() }
+    val settings by settingsViewModel.settings.collectAsState()
+    
+    AiAdventUltimateTheme(darkTheme = settings.darkTheme) {
+        ChatScreen(settingsViewModel = settingsViewModel)
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
-    viewModel: ChatViewModel = viewModel { ChatViewModel() },
+    settingsViewModel: SettingsViewModel = viewModel { SettingsViewModel() },
+    viewModel: ChatViewModel = viewModel { ChatViewModel(settingsViewModel) },
     embeddingViewModel: EmbeddingViewModel = viewModel { EmbeddingViewModel() }
 ) {
     var currentScreen by remember { mutableStateOf("chat") }
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
-    val useRAG by viewModel.useRAG.collectAsState()
+    val settings by settingsViewModel.settings.collectAsState()
+    val useRAG = settings.useRAG
     var messageText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val voiceService = remember { createVoiceInputService() }
     var isRecording by remember { mutableStateOf(false) }
     var isProcessingVoice by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    
+    // Синхронизируем настройки с ChatViewModel
+    LaunchedEffect(useRAG) {
+        viewModel.setUseRAG(useRAG)
+    }
+    
+    LaunchedEffect(settings.enableVoiceOutput) {
+        viewModel.setEnableVoiceOutput(settings.enableVoiceOutput)
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -68,100 +90,149 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(if (currentScreen == "chat") "AI Чат-бот" else "Эмбеддинги") },
-                actions = {
-                    if (currentScreen == "chat") {
-                        Row(
-                            modifier = Modifier.padding(end = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "RAG",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                            Switch(
-                                checked = useRAG,
-                                onCheckedChange = { viewModel.setUseRAG(it) },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                                    checkedTrackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
-                                    uncheckedThumbColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
-                                    uncheckedTrackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.3f)
-                                )
-                            )
-                        }
-                        IconButton(onClick = { viewModel.clearChat() }) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Очистить чат"
-                            )
-                        }
-                    }
-                    IconButton(
-                        onClick = { currentScreen = if (currentScreen == "chat") "embeddings" else "chat" }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Storage,
-                            contentDescription = if (currentScreen == "chat") "Эмбеддинги" else "Чат"
+            CenterAlignedTopAppBar(
+                title = {
+                    Column {
+                        Text(
+                            text = "AiAdvent Ultimate",
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = when (currentScreen) {
+                                "chat" -> "AI чат"
+                                "embeddings" -> "Индекс эмбеддингов"
+                                "settings" -> "Настройки"
+                                else -> "AI чат"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+                navigationIcon = {
+                    if (currentScreen == "settings") {
+                        IconButton(onClick = { currentScreen = "chat" }) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Назад"
+                            )
+                        }
+                    } else {
+                        IconButton(onClick = { currentScreen = "settings" }) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Настройки"
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    when (currentScreen) {
+                        "chat" -> {
+                            IconButton(onClick = { viewModel.clearChat() }) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Очистить чат"
+                                )
+                            }
+                            IconButton(
+                                onClick = { currentScreen = "embeddings" }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Storage,
+                                    contentDescription = "Эмбеддинги"
+                                )
+                            }
+                        }
+                        "embeddings" -> {
+                            IconButton(
+                                onClick = { currentScreen = "chat" }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Tune,
+                                    contentDescription = "Чат"
+                                )
+                            }
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
-        }
+        },
+        containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            when (currentScreen) {
-                "embeddings" -> {
-                    EmbeddingScreenContent(
-                        viewModel = embeddingViewModel,
-                        onFilesSelected = { filePaths ->
-                            if (filePaths.isNotEmpty()) {
-                                coroutineScope.launch {
-                                    try {
-                                        embeddingViewModel.processHtmlFiles(filePaths)
-                                    } catch (e: Exception) {
-                                        println("Failed to process files: ${e.message}")
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 32.dp, vertical = 24.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 1100.dp)
+                        .align(Alignment.Center)
+                ) {
+                    when (currentScreen) {
+                        "embeddings" -> {
+                            EmbeddingScreenContent(
+                                viewModel = embeddingViewModel,
+                                onFilesSelected = { filePaths ->
+                                    if (filePaths.isNotEmpty()) {
+                                        coroutineScope.launch {
+                                            try {
+                                                embeddingViewModel.processHtmlFiles(filePaths)
+                                            } catch (e: Exception) {
+                                                println("Failed to process files: ${e.message}")
+                                            }
+                                        }
                                     }
                                 }
-                            }
+                            )
                         }
-                    )
-                }
-                else -> {
-                    ChatContent(
-                        messages = messages,
-                        isLoading = isLoading,
-                        messageText = messageText,
-                        onMessageTextChange = { messageText = it },
-                        listState = listState,
-                        voiceService = voiceService,
-                        isRecording = isRecording,
-                        isProcessingVoice = isProcessingVoice,
-                        onIsRecordingChange = { isRecording = it },
-                        onIsProcessingVoiceChange = { isProcessingVoice = it },
-                        onSendMessage = {
-                            val currentText = messageText
-                            viewModel.sendMessage(currentText)
-                            messageText = ""
-                        },
-                        onSendMessageWithText = { text ->
-                            viewModel.sendMessage(text)
-                            messageText = ""
-                        },
-                        coroutineScope = coroutineScope
-                    )
+                        "settings" -> {
+                            SettingsScreen(
+                                viewModel = settingsViewModel,
+                                onBack = { currentScreen = "chat" }
+                            )
+                        }
+                        else -> {
+                            ChatContent(
+                                messages = messages,
+                                isLoading = isLoading,
+                                messageText = messageText,
+                                onMessageTextChange = { messageText = it },
+                                listState = listState,
+                                voiceService = voiceService,
+                                isRecording = isRecording,
+                                isProcessingVoice = isProcessingVoice,
+                                onIsRecordingChange = { isRecording = it },
+                                onIsProcessingVoiceChange = { isProcessingVoice = it },
+                                onSendMessage = {
+                                    val currentText = messageText
+                                    viewModel.sendMessage(currentText)
+                                    messageText = ""
+                                },
+                                onSendMessageWithText = { text ->
+                                    viewModel.sendMessage(text)
+                                    messageText = ""
+                                },
+                                coroutineScope = coroutineScope,
+                                enableVoiceInput = settings.enableVoiceInput
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -182,7 +253,8 @@ fun ChatContent(
     onIsProcessingVoiceChange: (Boolean) -> Unit,
     onSendMessage: () -> Unit,
     onSendMessageWithText: (String) -> Unit,
-    coroutineScope: CoroutineScope
+    coroutineScope: CoroutineScope,
+    enableVoiceInput: Boolean = true
 ) {
     Column(
         modifier = Modifier.fillMaxSize()
@@ -235,7 +307,7 @@ fun ChatContent(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    if (voiceService.isSupported() && !isLoading) {
+                    if (enableVoiceInput && voiceService.isSupported() && !isLoading) {
                         when {
                             isRecording -> {
                                 FloatingActionButton(

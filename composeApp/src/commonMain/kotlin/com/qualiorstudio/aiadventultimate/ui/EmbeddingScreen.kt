@@ -1,7 +1,9 @@
 package com.qualiorstudio.aiadventultimate.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.FolderOpen
@@ -32,6 +34,7 @@ fun EmbeddingScreenContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -92,7 +95,10 @@ fun EmbeddingScreenContent(
         if (availableModels.isNotEmpty()) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -100,11 +106,15 @@ fun EmbeddingScreenContent(
                 ) {
                     Text(
                         text = "Выберите модель:",
-                        style = MaterialTheme.typography.labelLarge
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
                     availableModels.forEach { model ->
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             RadioButton(
@@ -113,13 +123,17 @@ fun EmbeddingScreenContent(
                             )
                             Text(
                                 text = model,
-                                modifier = Modifier.padding(start = 8.dp)
+                                modifier = Modifier.padding(start = 8.dp),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
                 }
             }
         }
+        
+        Spacer(modifier = Modifier.height(8.dp))
         
         FilePickerButton(
             onFilesSelected = { filePaths ->
@@ -207,6 +221,8 @@ fun EmbeddingScreenContent(
                 )
             }
         }
+        
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 

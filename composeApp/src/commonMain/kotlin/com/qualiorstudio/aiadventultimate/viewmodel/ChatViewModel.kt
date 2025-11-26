@@ -13,13 +13,68 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class ChatViewModel : ViewModel() {
-    private val deepSeekApiKey = "sk-b21fe1a6400b4757840a27ebc1a5de2a"
-    
-    private val deepSeek = DeepSeek(apiKey = deepSeekApiKey)
-    private val ragService = RAGService()
-    private val aiAgent = AIAgent(deepSeek, ragService)
+class ChatViewModel(
+    private val settingsViewModel: SettingsViewModel? = null
+) : ViewModel() {
     private val voiceOutputService = createVoiceOutputService()
+    
+    private var deepSeek: DeepSeek? = null
+    private var ragService: RAGService? = null
+    private var aiAgent: AIAgent? = null
+    private var lastApiKey: String? = null
+    private var lastLmStudioUrl: String? = null
+    private var lastTopK: Int? = null
+    private var lastRerankMinScore: Double? = null
+    private var lastRerankedRetentionRatio: Double? = null
+    private var lastMaxIterations: Int? = null
+    
+    private fun getSettings() = settingsViewModel?.settings?.value ?: com.qualiorstudio.aiadventultimate.model.AppSettings()
+    
+    private fun initializeServices() {
+        val settings = getSettings()
+        
+        // Проверяем, нужно ли пересоздавать сервисы
+        val needsRecreation = deepSeek == null || 
+            ragService == null || 
+            aiAgent == null ||
+            lastApiKey != settings.deepSeekApiKey ||
+            lastLmStudioUrl != settings.lmStudioBaseUrl ||
+            lastTopK != settings.ragTopK ||
+            lastRerankMinScore != settings.rerankMinScore ||
+            lastRerankedRetentionRatio != settings.rerankedRetentionRatio ||
+            lastMaxIterations != settings.maxIterations
+        
+        if (!needsRecreation) {
+            return
+        }
+        
+        // Закрываем старые сервисы
+        aiAgent?.close()
+        ragService?.close()
+        deepSeek = null
+        
+        // Сохраняем текущие настройки
+        lastApiKey = settings.deepSeekApiKey
+        lastLmStudioUrl = settings.lmStudioBaseUrl
+        lastTopK = settings.ragTopK
+        lastRerankMinScore = settings.rerankMinScore
+        lastRerankedRetentionRatio = settings.rerankedRetentionRatio
+        lastMaxIterations = settings.maxIterations
+        
+        // Создаем новые сервисы с настройками
+        deepSeek = DeepSeek(apiKey = settings.deepSeekApiKey)
+        ragService = RAGService(
+            lmStudioBaseUrl = settings.lmStudioBaseUrl,
+            topK = settings.ragTopK,
+            rerankMinScore = settings.rerankMinScore,
+            rerankedRetentionRatio = settings.rerankedRetentionRatio
+        )
+        aiAgent = AIAgent(
+            deepSeek = deepSeek!!,
+            ragService = ragService,
+            maxIterations = settings.maxIterations
+        )
+    }
     
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -30,15 +85,30 @@ class ChatViewModel : ViewModel() {
     private val _useRAG = MutableStateFlow(true)
     val useRAG: StateFlow<Boolean> = _useRAG.asStateFlow()
     
+    private val _enableVoiceOutput = MutableStateFlow(true)
+    val enableVoiceOutput: StateFlow<Boolean> = _enableVoiceOutput.asStateFlow()
+    
     private var conversationHistory = mutableListOf<DeepSeekMessage>()
     
     init {
+        initializeServices()
         viewModelScope.launch {
             try {
-                aiAgent.initialize()
+                aiAgent?.initialize()
             } catch (e: Exception) {
                 println("Failed to initialize AIAgent: ${e.message}")
                 e.printStackTrace()
+            }
+        }
+        
+        // Подписываемся на изменения настроек
+        settingsViewModel?.settings?.let { settingsFlow ->
+            viewModelScope.launch {
+                settingsFlow.collect { settings ->
+                    // Пересоздаем сервисы при изменении критических настроек
+                    initializeServices()
+                    aiAgent?.initialize()
+                }
             }
         }
     }
@@ -54,7 +124,14 @@ class ChatViewModel : ViewModel() {
         
         viewModelScope.launch {
             try {
-                val result = aiAgent.processMessage(text, conversationHistory.toList(), _useRAG.value)
+                val settings = getSettings()
+                val result = aiAgent?.processMessage(
+                    userMessage = text,
+                    conversationHistory = conversationHistory.toList(),
+                    useRAG = _useRAG.value,
+                    temperature = settings.temperature,
+                    maxTokens = settings.maxTokens
+                ) ?: throw Exception("AI Agent не инициализирован")
                 val metricsSuffix = result.variants.firstOrNull()?.metadata?.let {
                     "\n\n[Reranker] $it"
                 } ?: ""
@@ -67,7 +144,7 @@ class ChatViewModel : ViewModel() {
                 conversationHistory.clear()
                 conversationHistory.addAll(result.updatedHistory)
                 
-                if (voiceOutputService.isSupported() && result.shortPhrase.isNotBlank()) {
+                if (_enableVoiceOutput.value && voiceOutputService.isSupported() && result.shortPhrase.isNotBlank()) {
                     launch {
                         voiceOutputService.speak(result.shortPhrase).onFailure { error ->
                             println("Voice output error: ${error.message}")
@@ -99,11 +176,15 @@ class ChatViewModel : ViewModel() {
         _useRAG.value = enabled
     }
     
+    fun setEnableVoiceOutput(enabled: Boolean) {
+        _enableVoiceOutput.value = enabled
+    }
+    
     override fun onCleared() {
         super.onCleared()
         voiceOutputService.stopSpeaking()
-        aiAgent.close()
-        ragService.close()
+        aiAgent?.close()
+        ragService?.close()
     }
 }
 

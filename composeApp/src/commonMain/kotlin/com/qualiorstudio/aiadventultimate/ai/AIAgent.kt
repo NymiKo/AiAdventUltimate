@@ -14,7 +14,8 @@ data class ProcessMessageResult(
 
 class AIAgent(
     private val deepSeek: DeepSeek,
-    private val ragService: RAGService? = null
+    private val ragService: RAGService? = null,
+    private val maxIterations: Int = 10
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private var tools: List<DeepSeekTool> = emptyList()
@@ -22,6 +23,16 @@ class AIAgent(
     private val systemPrompt = """
 You are a helpful AI assistant.
 Be friendly, helpful, and proactive.
+
+CRITICAL INSTRUCTIONS FOR INFORMATION USAGE:
+- When context or information from the knowledge base is provided in the user's message, you MUST use ONLY that information to answer.
+- DO NOT make up, invent, or hallucinate any information that is not explicitly provided in the context.
+- DO NOT use your general knowledge if context from the knowledge base is provided - rely exclusively on the provided context.
+- If the provided context does not contain enough information to fully answer the question, clearly state that the available information is insufficient, rather than inventing details.
+- If no context is provided in the user's message, you may use your general knowledge as usual.
+- When context is present, base your answer strictly on what is stated in that context, without adding supplementary information from your training data.
+
+The context from the knowledge base will be clearly marked in the user's message. Pay close attention to it and use it as your primary and only source of information.
     """.trimIndent()
 
     suspend fun initialize() {
@@ -31,7 +42,9 @@ Be friendly, helpful, and proactive.
     suspend fun processMessage(
         userMessage: String,
         conversationHistory: List<DeepSeekMessage>,
-        useRAG: Boolean = true
+        useRAG: Boolean = true,
+        temperature: Double = 0.7,
+        maxTokens: Int = 8000
     ): ProcessMessageResult {
         val ragEnabled = useRAG && ragService != null && ragService.isAvailable()
         return try {
@@ -41,7 +54,9 @@ Be friendly, helpful, and proactive.
                     println("=== RAG: Генерирую ответ только по reranker-контексту ===")
                     val rerankedCompletion = requestCompletion(
                         comparison.reranked.prompt,
-                        conversationHistory
+                        conversationHistory,
+                        temperature = temperature,
+                        maxTokens = maxTokens
                     )
                     val variants = listOf(
                         createVariant(
@@ -50,7 +65,7 @@ Be friendly, helpful, and proactive.
                             isPreferred = true
                         )
                     )
-                    val shortPhrase = generateShortPhrase(rerankedCompletion.content)
+                    val shortPhrase = generateShortPhrase(rerankedCompletion.content, temperature, maxTokens)
                     return ProcessMessageResult(
                         response = rerankedCompletion.content,
                         shortPhrase = shortPhrase,
@@ -62,8 +77,13 @@ Be friendly, helpful, and proactive.
                 println("=== RAG: Отключен, используем исходный вопрос ===")
             }
 
-            val completion = requestCompletion(userMessage, conversationHistory)
-            val shortPhrase = generateShortPhrase(completion.content)
+            val completion = requestCompletion(
+                userMessage, 
+                conversationHistory,
+                temperature = temperature,
+                maxTokens = maxTokens
+            )
+            val shortPhrase = generateShortPhrase(completion.content, temperature, maxTokens)
 
             ProcessMessageResult(
                 response = completion.content,
@@ -83,7 +103,9 @@ Be friendly, helpful, and proactive.
     
     private suspend fun requestCompletion(
         userContent: String,
-        conversationHistory: List<DeepSeekMessage>
+        conversationHistory: List<DeepSeekMessage>,
+        temperature: Double = 0.7,
+        maxTokens: Int = 8000
     ): CompletionOutput {
         val messages = mutableListOf(
             DeepSeekMessage(role = "system", content = systemPrompt)
@@ -99,11 +121,10 @@ Be friendly, helpful, and proactive.
                 println("Tool $index: ${tool.function.name}")
             }
 
-            var response = deepSeek.sendMessage(messages, tools)
+            var response = deepSeek.sendMessage(messages, tools, temperature = temperature, maxTokens = maxTokens)
             var currentMessages = messages.toMutableList()
 
             var iterationCount = 0
-            val maxIterations = 10
 
             println("Initial response finish_reason: ${response.choices.firstOrNull()?.finishReason}")
 
@@ -151,7 +172,7 @@ Be friendly, helpful, and proactive.
 
                 println("Sending follow-up request with ${currentMessages.size} messages")
                 println("Tools will be included: ${tools.isNotEmpty()}")
-                response = deepSeek.sendMessage(currentMessages, tools)
+                response = deepSeek.sendMessage(currentMessages, tools, temperature = temperature, maxTokens = maxTokens)
                 println("Follow-up response finish_reason: ${response.choices.firstOrNull()?.finishReason}")
             }
 
@@ -225,7 +246,11 @@ Be friendly, helpful, and proactive.
         return rounded.toString()
     }
 
-    private suspend fun generateShortPhrase(fullResponse: String): String {
+    private suspend fun generateShortPhrase(
+        fullResponse: String,
+        temperature: Double = 0.7,
+        maxTokens: Int = 8000
+    ): String {
         return try {
             val prompt = """
                 На основе следующего ответа создай краткую фразу (максимум 1-2 предложения) для озвучивания голосом AI ассистента в стиле Джарвиса из фильмов Iron Man.
@@ -255,7 +280,7 @@ Be friendly, helpful, and proactive.
                 DeepSeekMessage(role = "user", content = prompt)
             )
             
-            val response = deepSeek.sendMessage(messages, null)
+            val response = deepSeek.sendMessage(messages, null, temperature = temperature, maxTokens = maxTokens)
             response.choices.firstOrNull()?.message?.content?.trim()
                 ?.take(200)
                 ?: "Готово"
