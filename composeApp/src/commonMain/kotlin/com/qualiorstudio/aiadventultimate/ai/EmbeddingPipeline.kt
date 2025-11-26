@@ -77,7 +77,7 @@ class EmbeddingPipeline(
         query: String,
         topK: Int = 5,
         model: String? = null
-    ): List<EmbeddingChunk> {
+    ): List<ScoredEmbeddingChunk> {
         return withContext(Dispatchers.Default) {
             val modelToUse = model ?: this@EmbeddingPipeline.model
             val queryEmbedding = lmStudio.generateEmbedding(query, modelToUse)

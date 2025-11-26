@@ -3,6 +3,7 @@ package com.qualiorstudio.aiadventultimate
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -12,6 +13,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.*
@@ -22,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
+import com.qualiorstudio.aiadventultimate.model.ChatResponseVariant
 import com.qualiorstudio.aiadventultimate.ui.EmbeddingScreenContent
 import com.qualiorstudio.aiadventultimate.viewmodel.ChatViewModel
 import com.qualiorstudio.aiadventultimate.viewmodel.EmbeddingViewModel
@@ -323,29 +327,105 @@ fun ChatMessageItem(message: ChatMessage) {
             .padding(vertical = 4.dp),
         horizontalArrangement = if (message.isUser) Arrangement.End else Arrangement.Start
     ) {
-        Card(
-            modifier = Modifier.widthIn(max = 300.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (message.isUser)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.secondaryContainer
-            ),
-            shape = RoundedCornerShape(
-                topStart = 16.dp,
-                topEnd = 16.dp,
-                bottomStart = if (message.isUser) 16.dp else 4.dp,
-                bottomEnd = if (message.isUser) 4.dp else 16.dp
-            )
+        Column(
+            horizontalAlignment = if (message.isUser) Alignment.End else Alignment.Start,
+            modifier = Modifier.widthIn(max = 320.dp)
         ) {
-            Text(
-                text = message.text,
-                modifier = Modifier.padding(12.dp),
-                color = if (message.isUser)
-                    MaterialTheme.colorScheme.onPrimary
-                else
-                    MaterialTheme.colorScheme.onSecondaryContainer
-            )
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (message.isUser)
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.secondaryContainer
+                ),
+                shape = RoundedCornerShape(
+                    topStart = 16.dp,
+                    topEnd = 16.dp,
+                    bottomStart = if (message.isUser) 16.dp else 4.dp,
+                    bottomEnd = if (message.isUser) 4.dp else 16.dp
+                )
+            ) {
+                Text(
+                    text = message.text,
+                    modifier = Modifier.padding(12.dp),
+                    color = if (message.isUser)
+                        MaterialTheme.colorScheme.onPrimary
+                    else
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+
+            if (!message.isUser && message.variants.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                message.variants.forEachIndexed { index, variant ->
+                    ResponseVariantCard(variant = variant)
+                    if (index != message.variants.lastIndex) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ResponseVariantCard(variant: ChatResponseVariant) {
+    var expanded by remember { mutableStateOf(false) }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (variant.isPreferred)
+                MaterialTheme.colorScheme.surfaceVariant
+            else
+                MaterialTheme.colorScheme.surface
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = variant.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    variant.metadata?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (expanded) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = variant.body,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
         }
     }
 }

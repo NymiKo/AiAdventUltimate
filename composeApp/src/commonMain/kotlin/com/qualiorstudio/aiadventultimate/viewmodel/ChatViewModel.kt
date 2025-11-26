@@ -55,7 +55,14 @@ class ChatViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val result = aiAgent.processMessage(text, conversationHistory.toList(), _useRAG.value)
-                val aiMessage = ChatMessage(text = result.response, isUser = false)
+                val metricsSuffix = result.variants.firstOrNull()?.metadata?.let {
+                    "\n\n[Reranker] $it"
+                } ?: ""
+                val messageText = result.response + metricsSuffix
+                val aiMessage = ChatMessage(
+                    text = messageText,
+                    isUser = false
+                )
                 _messages.value = _messages.value + aiMessage
                 conversationHistory.clear()
                 conversationHistory.addAll(result.updatedHistory)

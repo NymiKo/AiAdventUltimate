@@ -1,12 +1,15 @@
 package com.qualiorstudio.aiadventultimate.ai
 
 import com.qualiorstudio.aiadventultimate.api.*
+import com.qualiorstudio.aiadventultimate.model.ChatResponseVariant
 import kotlinx.serialization.json.*
+import kotlin.math.roundToInt
 
 data class ProcessMessageResult(
     val response: String,
     val shortPhrase: String,
-    val updatedHistory: List<DeepSeekMessage>
+    val updatedHistory: List<DeepSeekMessage>,
+    val variants: List<ChatResponseVariant> = emptyList()
 )
 
 class AIAgent(
@@ -30,26 +33,63 @@ Be friendly, helpful, and proactive.
         conversationHistory: List<DeepSeekMessage>,
         useRAG: Boolean = true
     ): ProcessMessageResult {
-        val enrichedMessage = if (useRAG && ragService != null && ragService.isAvailable()) {
-            try {
-                println("=== RAG: Обогащаю вопрос контекстом ===")
-                ragService.processWithRAG(userMessage)
-            } catch (e: Exception) {
-                println("RAG: Ошибка при обогащении контекста: ${e.message}")
-                userMessage
-            }
-        } else {
-            if (!useRAG) {
+        val ragEnabled = useRAG && ragService != null && ragService.isAvailable()
+        return try {
+            if (ragEnabled) {
+                val comparison = ragService?.buildComparison(userMessage)
+                if (comparison != null) {
+                    println("=== RAG: Генерирую ответ только по reranker-контексту ===")
+                    val rerankedCompletion = requestCompletion(
+                        comparison.reranked.prompt,
+                        conversationHistory
+                    )
+                    val variants = listOf(
+                        createVariant(
+                            context = comparison.reranked,
+                            content = rerankedCompletion.content,
+                            isPreferred = true
+                        )
+                    )
+                    val shortPhrase = generateShortPhrase(rerankedCompletion.content)
+                    return ProcessMessageResult(
+                        response = rerankedCompletion.content,
+                        shortPhrase = shortPhrase,
+                        updatedHistory = rerankedCompletion.updatedHistory,
+                        variants = variants
+                    )
+                }
+            } else if (!useRAG) {
                 println("=== RAG: Отключен, используем исходный вопрос ===")
             }
-            userMessage
+
+            val completion = requestCompletion(userMessage, conversationHistory)
+            val shortPhrase = generateShortPhrase(completion.content)
+
+            ProcessMessageResult(
+                response = completion.content,
+                shortPhrase = shortPhrase,
+                updatedHistory = completion.updatedHistory
+            )
+        } catch (e: Exception) {
+            println("Error in processMessage: ${e.message}")
+            e.printStackTrace()
+            ProcessMessageResult(
+                response = "Error: ${e.message}",
+                shortPhrase = "Произошла ошибка",
+                updatedHistory = conversationHistory
+            )
         }
-        
+    }
+    
+    private suspend fun requestCompletion(
+        userContent: String,
+        conversationHistory: List<DeepSeekMessage>
+    ): CompletionOutput {
         val messages = mutableListOf(
             DeepSeekMessage(role = "system", content = systemPrompt)
         )
         messages.addAll(conversationHistory)
-        val userMsg = DeepSeekMessage(role = "user", content = enrichedMessage)
+        val userMsg = DeepSeekMessage(role = "user", content = userContent)
         messages.add(userMsg)
 
         return try {
@@ -58,33 +98,33 @@ Be friendly, helpful, and proactive.
             tools.forEachIndexed { index, tool ->
                 println("Tool $index: ${tool.function.name}")
             }
-            
+
             var response = deepSeek.sendMessage(messages, tools)
             var currentMessages = messages.toMutableList()
-            
+
             var iterationCount = 0
             val maxIterations = 10
-            
+
             println("Initial response finish_reason: ${response.choices.firstOrNull()?.finishReason}")
-            
+
             while (response.choices.firstOrNull()?.finishReason == "tool_calls" && iterationCount < maxIterations) {
                 iterationCount++
                 println("=== Tool Call Chain Iteration $iterationCount ===")
-                
+
                 val assistantMessage = response.choices.first().message
                 currentMessages.add(assistantMessage)
-                
+
                 val toolCalls = assistantMessage.toolCalls ?: break
-                
+
                 println("Processing ${toolCalls.size} tool call(s)")
-                
+
                 for (toolCall in toolCalls) {
                     val functionName = toolCall.function.name
                     val argumentsStr = toolCall.function.arguments
-                    
+
                     println("  Calling tool: $functionName")
                     println("  Arguments: $argumentsStr")
-                    
+
                     try {
                         println("  Tool call received but no tools available")
                         currentMessages.add(
@@ -108,53 +148,83 @@ Be friendly, helpful, and proactive.
                         )
                     }
                 }
-                
+
                 println("Sending follow-up request with ${currentMessages.size} messages")
                 println("Tools will be included: ${tools.isNotEmpty()}")
                 response = deepSeek.sendMessage(currentMessages, tools)
                 println("Follow-up response finish_reason: ${response.choices.firstOrNull()?.finishReason}")
             }
-            
+
             if (iterationCount >= maxIterations) {
                 println("WARNING: Reached maximum iterations ($maxIterations) in tool call chain")
             }
-            
+
             val finalAssistantMessage = response.choices.firstOrNull()?.message
-            val finalContent = finalAssistantMessage?.content?.trim() 
+            val finalContent = finalAssistantMessage?.content?.trim()
                 ?: "Sorry, I couldn't generate a response."
-            
+
             if (finalAssistantMessage != null && finalAssistantMessage.content != null) {
                 currentMessages.add(finalAssistantMessage)
             }
-            
+
             val updatedHistory = currentMessages
                 .drop(1)
                 .filter { it.role != "system" }
-            
-            val shortPhrase = generateShortPhrase(finalContent)
-            
+
             println("=== Final Response ===")
             println("Total iterations: $iterationCount")
             println("Final content length: ${finalContent.length}")
-            println("Short phrase: $shortPhrase")
             println("Updated history size: ${updatedHistory.size}")
-            
-            ProcessMessageResult(
-                response = finalContent,
-                shortPhrase = shortPhrase,
+
+            CompletionOutput(
+                content = finalContent,
                 updatedHistory = updatedHistory
             )
         } catch (e: Exception) {
-            println("Error in processMessage: ${e.message}")
-            e.printStackTrace()
-            ProcessMessageResult(
-                response = "Error: ${e.message}",
-                shortPhrase = "Произошла ошибка",
-                updatedHistory = conversationHistory
-            )
+            println("Error while requesting completion: ${e.message}")
+            throw e
         }
     }
-    
+
+    private fun createVariant(
+        context: RAGVariantContext,
+        content: String,
+        isPreferred: Boolean
+    ): ChatResponseVariant {
+        return ChatResponseVariant(
+            id = context.id,
+            title = context.title,
+            body = content,
+            metadata = buildVariantMetadata(context),
+            isPreferred = isPreferred
+        )
+    }
+
+    private fun buildVariantMetadata(context: RAGVariantContext): String {
+        val usedChunks = context.chunks.size
+        val filteredOut = (context.totalCandidates - usedChunks).coerceAtLeast(0)
+        val parts = mutableListOf<String>()
+        parts.add("Чанки: $usedChunks")
+        if (filteredOut > 0) {
+            parts.add("Отфильтровано: $filteredOut")
+        }
+        val thresholdLabel = if (context.chunks.any { it.rerankScore != null }) "Score ≥" else "Sim ≥"
+        val thresholdPart = context.similarityThreshold?.let { "$thresholdLabel ${formatScore(it)}" } ?: "Без порога"
+        parts.add(thresholdPart)
+        context.averageSimilarity?.let {
+            parts.add("Avg sim: ${formatScore(it)}")
+        }
+        context.averageCombinedScore?.let {
+            parts.add("Avg score: ${formatScore(it)}")
+        }
+        return parts.joinToString(" | ")
+    }
+
+    private fun formatScore(value: Double): String {
+        val rounded = (value * 100).roundToInt() / 100.0
+        return rounded.toString()
+    }
+
     private suspend fun generateShortPhrase(fullResponse: String): String {
         return try {
             val prompt = """
@@ -194,6 +264,11 @@ Be friendly, helpful, and proactive.
             "Готово"
         }
     }
+
+    private data class CompletionOutput(
+        val content: String,
+        val updatedHistory: List<DeepSeekMessage>
+    )
 
     fun close() {
         ragService?.close()

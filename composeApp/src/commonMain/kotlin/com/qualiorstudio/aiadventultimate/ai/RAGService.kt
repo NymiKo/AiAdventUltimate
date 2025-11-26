@@ -4,11 +4,39 @@ import com.qualiorstudio.aiadventultimate.api.LMStudio
 import com.qualiorstudio.aiadventultimate.utils.getEmbeddingsIndexPath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
+
+data class RankedChunk(
+    val chunk: EmbeddingChunk,
+    val similarity: Double,
+    val rerankScore: Double? = null,
+    val combinedScore: Double? = null
+)
+
+data class RAGVariantContext(
+    val id: String,
+    val title: String,
+    val prompt: String,
+    val context: String,
+    val chunks: List<RankedChunk>,
+    val similarityThreshold: Double?,
+    val totalCandidates: Int,
+    val averageSimilarity: Double?,
+    val averageCombinedScore: Double?
+)
+
+data class RAGComparisonResult(
+    val baseline: RAGVariantContext,
+    val reranked: RAGVariantContext
+)
 
 class RAGService(
     private val lmStudioBaseUrl: String = "http://localhost:1234",
     private val indexFilePath: String = getEmbeddingsIndexPath(),
-    private val topK: Int = 5
+    private val topK: Int = 12,
+    private val rerankMinScore: Double = 0.58,
+    private val rerankedRetentionRatio: Double = 0.5,
+    private val reranker: RAGReranker = RAGReranker()
 ) {
     private val lmStudio: LMStudio? by lazy {
         try {
@@ -27,7 +55,7 @@ class RAGService(
         lmStudio?.let { EmbeddingPipeline(it, index) }
     }
     
-    suspend fun searchRelevantChunks(query: String): List<EmbeddingChunk> {
+    suspend fun searchRelevantChunks(query: String): List<ScoredEmbeddingChunk> {
         return withContext(Dispatchers.Default) {
             try {
                 val currentPipeline = pipeline
@@ -47,7 +75,7 @@ class RAGService(
         }
     }
     
-    fun buildContext(chunks: List<EmbeddingChunk>): String {
+    fun buildContext(chunks: List<RankedChunk>): String {
         if (chunks.isEmpty()) {
             return ""
         }
@@ -56,7 +84,12 @@ class RAGService(
         contextBuilder.append("Релевантная информация из базы знаний:\n\n")
         
         chunks.forEachIndexed { index, chunk ->
-            contextBuilder.append("[${index + 1}] ${chunk.text}\n\n")
+            val metrics = buildString {
+                append("sim=${formatScore(chunk.similarity)}")
+                chunk.rerankScore?.let { append(", lex=${formatScore(it)}") }
+                chunk.combinedScore?.let { append(", score=${formatScore(it)}") }
+            }
+            contextBuilder.append("[${index + 1}] ($metrics) ${chunk.chunk.text}\n\n")
         }
         
         return contextBuilder.toString().trim()
@@ -78,19 +111,78 @@ $context
 Ответь на вопрос, используя предоставленную информацию, если она релевантна.
         """.trimIndent()
     }
-    
-    suspend fun processWithRAG(userQuestion: String): String {
-        val chunks = searchRelevantChunks(userQuestion)
-        val context = buildContext(chunks)
-        
-        if (context.isEmpty()) {
-            println("RAG: Контекст не найден, возвращаю исходный вопрос")
-            return userQuestion
+
+    suspend fun buildComparison(userQuestion: String): RAGComparisonResult? {
+        val scoredChunks = searchRelevantChunks(userQuestion)
+        if (scoredChunks.isEmpty()) {
+            println("RAG: Контекст не найден, будут использованы исходные вопросы для сравнения")
         }
+        val baselineRanked = scoredChunks.map {
+            RankedChunk(
+                chunk = it.chunk,
+                similarity = it.similarity,
+                combinedScore = it.similarity
+            )
+        }
+        val reranked = reranker.rerank(userQuestion, scoredChunks)
+        val desiredSize = (scoredChunks.size * rerankedRetentionRatio)
+            .coerceAtLeast(1.0)
+            .toInt()
+        val filteredReranked = reranked
+            .filter { (it.combinedScore ?: 0.0) >= rerankMinScore }
+            .ifEmpty { reranked }
+            .take(desiredSize.coerceAtMost(reranked.size))
         
-        val ragPrompt = buildRAGPrompt(userQuestion, context)
-        println("RAG: Сформирован промпт с контекстом (${chunks.size} чанков)")
-        return ragPrompt
+        val baseline = buildVariantContext(
+            id = "baseline",
+            title = "Без reranker",
+            userQuestion = userQuestion,
+            chunks = baselineRanked,
+            threshold = null,
+            totalCandidates = scoredChunks.size
+        )
+        
+        val rerankedVariant = buildVariantContext(
+            id = "reranked",
+            title = "С reranker",
+            userQuestion = userQuestion,
+            chunks = if (filteredReranked.isNotEmpty()) filteredReranked else reranked,
+            threshold = rerankMinScore,
+            totalCandidates = scoredChunks.size
+        )
+
+        return RAGComparisonResult(baseline, rerankedVariant)
+    }
+
+    private fun buildVariantContext(
+        id: String,
+        title: String,
+        userQuestion: String,
+        chunks: List<RankedChunk>,
+        threshold: Double?,
+        totalCandidates: Int
+    ): RAGVariantContext {
+        val context = buildContext(chunks)
+        val prompt = buildRAGPrompt(userQuestion, context)
+        val average = if (chunks.isNotEmpty()) chunks.map { it.similarity }.average() else null
+        val avgCombined = if (chunks.isNotEmpty()) chunks.mapNotNull { it.combinedScore }.takeIf { it.isNotEmpty() }?.average() else null
+        return RAGVariantContext(
+            id = id,
+            title = title,
+            prompt = prompt,
+            context = context,
+            chunks = chunks,
+            similarityThreshold = threshold,
+            totalCandidates = totalCandidates,
+            averageSimilarity = average,
+            averageCombinedScore = avgCombined
+        )
+    }
+
+    private fun formatScore(value: Double?): String {
+        if (value == null) return "-"
+        val rounded = (value * 100).roundToInt() / 100.0
+        return rounded.toString()
     }
     
     fun isAvailable(): Boolean {

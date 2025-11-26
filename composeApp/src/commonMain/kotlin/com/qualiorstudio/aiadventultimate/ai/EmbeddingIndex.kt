@@ -14,6 +14,12 @@ data class EmbeddingChunk(
 )
 
 @Serializable
+data class ScoredEmbeddingChunk(
+    val chunk: EmbeddingChunk,
+    val similarity: Double
+)
+
+@Serializable
 data class EmbeddingIndexData(
     val chunks: List<EmbeddingChunk>,
     val createdAt: Long = System.currentTimeMillis(),
@@ -62,7 +68,7 @@ class EmbeddingIndex(private val filePath: String) {
         saveIndex(updatedIndex)
     }
 
-    fun searchSimilar(queryEmbedding: List<Double>, topK: Int = 5): List<EmbeddingChunk> {
+    fun searchSimilar(queryEmbedding: List<Double>, topK: Int = 5): List<ScoredEmbeddingChunk> {
         val index = loadIndex() ?: return emptyList()
         
         val similarities = index.chunks.map { chunk ->
@@ -70,7 +76,7 @@ class EmbeddingIndex(private val filePath: String) {
             Pair(chunk, similarity)
         }.sortedByDescending { it.second }
         
-        return similarities.take(topK).map { it.first }
+        return similarities.take(topK).map { ScoredEmbeddingChunk(it.first, it.second) }
     }
 
     private fun cosineSimilarity(vec1: List<Double>, vec2: List<Double>): Double {
