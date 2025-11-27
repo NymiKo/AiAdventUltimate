@@ -89,7 +89,21 @@ class RAGService(
                 chunk.rerankScore?.let { append(", lex=${formatScore(it)}") }
                 chunk.combinedScore?.let { append(", score=${formatScore(it)}") }
             }
-            contextBuilder.append("[${index + 1}] ($metrics) ${chunk.chunk.text}\n\n")
+            
+            // Собираем метаданные для отображения
+            val metadataParts = mutableListOf<String>()
+            chunk.chunk.metadata["title"]?.let { metadataParts.add("Заголовок: $it") }
+            chunk.chunk.metadata["fileName"]?.let { metadataParts.add("Файл: $it") }
+            chunk.chunk.metadata["url"]?.let { metadataParts.add("URL: $it") }
+            chunk.chunk.metadata["source"]?.let { metadataParts.add("Источник: $it") }
+            
+            val metadataStr = if (metadataParts.isNotEmpty()) {
+                " [${metadataParts.joinToString(", ")}]"
+            } else {
+                ""
+            }
+            
+            contextBuilder.append("[Источник ${index + 1}]$metadataStr\n($metrics)\n${chunk.chunk.text}\n\n")
         }
         
         return contextBuilder.toString().trim()
@@ -109,7 +123,18 @@ $context
 
 Вопрос пользователя: $userQuestion
 
-Ответь на вопрос, используя ТОЛЬКО предоставленную выше информацию из базы знаний. Если информации недостаточно, скажи об этом прямо.
+ИНСТРУКЦИИ ПО ФОРМАТИРОВАНИЮ ОТВЕТА:
+1. Используй ТОЛЬКО информацию из предоставленных выше источников (помечены как [Источник 1], [Источник 2] и т.д.)
+2. ВСЕГДА указывай источники: после каждого факта или утверждения добавь ссылку на источник в формате [Источник X], где X - номер источника из контекста
+3. Используй прямые цитаты: если приводишь конкретную информацию, заключи её в кавычки и укажи источник
+4. В конце ответа добавь раздел "Источники:" со списком всех использованных источников с их метаданными (заголовок, файл, URL если есть)
+
+Пример формата ответа:
+[Текст ответа с цитатами в кавычках и ссылками на источники вида [Источник 1], [Источник 2]]
+
+Источники:
+[Источник 1]: [Заголовок: ...] [Файл: ...] [URL: ...] (если есть)
+[Источник 2]: [Заголовок: ...] [Файл: ...]
         """.trimIndent()
     }
 

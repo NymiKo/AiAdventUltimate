@@ -32,6 +32,12 @@ CRITICAL INSTRUCTIONS FOR INFORMATION USAGE:
 - If no context is provided in the user's message, you may use your general knowledge as usual.
 - When context is present, base your answer strictly on what is stated in that context, without adding supplementary information from your training data.
 
+CITATIONS AND REFERENCES:
+- When using information from the knowledge base context, ALWAYS cite your sources by referencing the source numbers (e.g., [Источник 1], [Источник 2])
+- Use direct quotes in quotation marks when citing specific text from the sources
+- Include a "Sources:" or "Источники:" section at the end of your response listing all sources used with their metadata (title, file, URL if available)
+- Make citations clear and visible in your response - every factual claim should be backed by a source reference
+
 The context from the knowledge base will be clearly marked in the user's message. Pay close attention to it and use it as your primary and only source of information.
     """.trimIndent()
 
