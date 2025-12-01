@@ -19,10 +19,12 @@ import com.qualiorstudio.aiadventultimate.repository.MCPServerRepositoryImpl
 import com.qualiorstudio.aiadventultimate.mcp.createMCPServerManager
 import com.qualiorstudio.aiadventultimate.utils.currentTimeMillis
 import com.qualiorstudio.aiadventultimate.voice.createVoiceOutputService
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -64,15 +66,37 @@ class ChatViewModel(
     val currentBranch: StateFlow<String?> = _currentBranch.asStateFlow()
     
     private val gitBranchService = com.qualiorstudio.aiadventultimate.service.createGitBranchService()
+    private var lastHeadModified: Long? = null
+    private var branchCheckJob: Job? = null
     
     init {
         viewModelScope.launch {
             currentProject.collect { project ->
+                branchCheckJob?.cancel()
                 if (project != null) {
                     updateCurrentBranch(project.path)
+                    startBranchMonitoring(project.path)
                 } else {
                     _currentBranch.value = null
+                    lastHeadModified = null
                 }
+            }
+        }
+    }
+    
+    private fun startBranchMonitoring(projectPath: String) {
+        branchCheckJob = viewModelScope.launch {
+            while (isActive) {
+                try {
+                    val currentModified = gitBranchService.getHeadFileLastModified(projectPath)
+                    if (currentModified != null && currentModified != lastHeadModified) {
+                        lastHeadModified = currentModified
+                        updateCurrentBranch(projectPath)
+                    }
+                } catch (e: Exception) {
+                    println("Ошибка при проверке изменений ветки: ${e.message}")
+                }
+                kotlinx.coroutines.delay(1000)
             }
         }
     }

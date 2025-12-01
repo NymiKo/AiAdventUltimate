@@ -9,6 +9,7 @@ import java.io.File
 interface GitBranchService {
     suspend fun getCurrentBranch(projectPath: String): String?
     suspend fun getGitHubBranchInfo(projectPath: String, mcpManager: MCPServerManager?): GitHubBranchInfo?
+    suspend fun getHeadFileLastModified(projectPath: String): Long?
 }
 
 data class GitHubBranchInfo(
@@ -116,6 +117,26 @@ class GitBranchServiceImpl : GitBranchService {
         }
         
         return null
+    }
+    
+    override suspend fun getHeadFileLastModified(projectPath: String): Long? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val gitDir = File(projectPath, ".git")
+                if (!gitDir.exists() || !gitDir.isDirectory) {
+                    return@withContext null
+                }
+                
+                val headFile = File(gitDir, "HEAD")
+                if (!headFile.exists()) {
+                    return@withContext null
+                }
+                
+                headFile.lastModified()
+            } catch (e: Exception) {
+                null
+            }
+        }
     }
 }
 
