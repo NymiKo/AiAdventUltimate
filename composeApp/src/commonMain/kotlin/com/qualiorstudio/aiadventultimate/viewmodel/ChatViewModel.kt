@@ -10,6 +10,7 @@ import com.qualiorstudio.aiadventultimate.model.Agent
 import com.qualiorstudio.aiadventultimate.model.AgentConnection
 import com.qualiorstudio.aiadventultimate.model.Chat
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
+import com.qualiorstudio.aiadventultimate.model.Commands
 import com.qualiorstudio.aiadventultimate.repository.AgentConnectionRepository
 import com.qualiorstudio.aiadventultimate.repository.AgentConnectionRepositoryImpl
 import com.qualiorstudio.aiadventultimate.repository.ChatRepository
@@ -409,6 +410,11 @@ AGENT_ID: <id_агента>
     fun sendMessage(text: String) {
         if (text.isBlank() || _isLoading.value) return
         
+        if (text.startsWith("/")) {
+            handleCommand(text)
+            return
+        }
+        
         val userMessage = ChatMessage(text = text, isUser = true)
         _messages.value = _messages.value + userMessage
         conversationHistory.add(DeepSeekMessage(role = "user", content = text))
@@ -701,6 +707,185 @@ $messageText
         _useCoordinator.value = !_useCoordinator.value
     }
     
+    private fun handleCommand(commandText: String) {
+        val parts = commandText.substring(1).trim().split(" ", limit = 2)
+        val commandName = parts[0].lowercase()
+        val commandArgs = parts.getOrNull(1) ?: ""
+        
+        when (commandName) {
+            "help" -> handleHelpCommand(commandArgs)
+            else -> {
+                val errorMessage = ChatMessage(
+                    text = "Неизвестная команда: /$commandName. Доступные команды: /help",
+                    isUser = false
+                )
+                _messages.value = _messages.value + errorMessage
+            }
+        }
+    }
+    
+    private fun handleHelpCommand(query: String) {
+        val userMessage = ChatMessage(text = "/help${if (query.isNotBlank()) " $query" else ""}", isUser = true)
+        _messages.value = _messages.value + userMessage
+        
+        _isLoading.value = true
+        viewModelScope.launch {
+            try {
+                val settings = getSettings()
+                val projectTools = currentProject.value?.let { 
+                    com.qualiorstudio.aiadventultimate.ai.ProjectTools(it)
+                }
+                
+                val helpSystemPrompt = """
+Ты помощник по проекту AI Advent Ultimate. Твоя задача - помогать пользователям разобраться в проекте и отвечать на их вопросы.
+
+ИНФОРМАЦИЯ О ПРОЕКТЕ:
+
+AI Advent Ultimate — это кросс-платформенное приложение AI чат-бота с поддержкой:
+- Мультиагентной системы — создание и управление специализированными AI агентами
+- RAG (Retrieval-Augmented Generation) — поиск релевантной информации из базы знаний
+- Голосового ввода и вывода — распознавание речи и синтез голоса (Desktop)
+- Кросс-платформенности — Android, iOS, Desktop (JVM)
+
+ОСНОВНЫЕ ВОЗМОЖНОСТИ:
+
+1. Текстовый чат с AI
+   - Поддержка нескольких AI провайдеров (DeepSeek, Yandex GPT)
+   - Настройка параметров генерации (temperature, maxTokens)
+   - История сообщений с сохранением в локальное хранилище
+
+2. Мультиагентная система
+   - Создание специализированных AI агентов с кастомными промптами
+   - Агент-координатор для автоматического выбора подходящего агента
+   - Связи между агентами (REVIEW, VALIDATE, ENHANCE, COLLABORATE)
+   - Параллельная работа нескольких агентов
+
+3. RAG (Retrieval-Augmented Generation)
+   - Индексация документов (HTML, PDF) в векторное хранилище
+   - Поиск релевантных фрагментов по семантическому сходству
+   - Reranking для улучшения качества результатов
+   - Интеграция с LM Studio для генерации эмбеддингов
+
+4. Голосовой ввод (Desktop)
+   - Распознавание речи через Yandex SpeechKit STT
+   - Поддержка русского языка
+   - Запись аудио с микрофона
+
+5. Голосовой вывод (Desktop)
+   - Синтез речи голосом Джарвиса через Yandex SpeechKit TTS
+   - Автоматическое озвучивание ответов AI
+   - Генерация кратких фраз для озвучивания
+
+ТЕХНОЛОГИЧЕСКИЙ СТЕК:
+- Kotlin Multiplatform — кроссплатформенная разработка
+- Compose Multiplatform — декларативный UI фреймворк
+- Ktor — HTTP клиент и сервер
+- Kotlinx Serialization — сериализация данных
+- Coroutines — асинхронное программирование
+- StateFlow — реактивное управление состоянием
+
+ВНЕШНИЕ СЕРВИСЫ:
+- DeepSeek API — основной AI провайдер
+- Yandex SpeechKit — распознавание и синтез речи
+- Yandex GPT — альтернативный AI провайдер
+- LM Studio — локальный сервер для эмбеддингов
+
+ИСПОЛЬЗОВАНИЕ:
+
+Работа с агентами:
+1. Нажмите на иконку "Агенты" в верхней панели
+2. Создайте нового агента с кастомным промптом
+3. Выберите агентов для работы
+4. Включите/выключите координатор
+
+Использование RAG:
+1. Перейдите в раздел "Эмбеддинги"
+2. Загрузите документы (HTML, PDF)
+3. Дождитесь индексации
+4. Используйте RAG в чате (включите в настройках)
+
+Голосовой ввод (Desktop):
+1. Убедитесь, что микрофон подключен
+2. Нажмите на иконку микрофона
+3. Говорите в микрофон
+4. Нажмите красную кнопку для остановки
+5. Текст автоматически появится в поле ввода
+
+НАСТРОЙКИ:
+- Темная тема — переключение темы интерфейса
+- RAG — включение/выключение поиска по базе знаний
+- Голосовой ввод — включение/выключение распознавания речи
+- Голосовой вывод — включение/выключение синтеза речи
+- API ключи — настройка ключей для внешних сервисов
+- Параметры модели — temperature, maxTokens
+- Параметры RAG — topK, rerankMinScore, rerankedRetentionRatio
+
+${if (query.isNotBlank()) {
+    """
+    
+ПОЛЬЗОВАТЕЛЬ ЗАДАЛ ВОПРОС: $query
+
+Ответь на вопрос пользователя, используя информацию о проекте выше. Будь полезным и конкретным.
+    """.trimIndent()
+} else {
+    """
+    
+Пользователь запросил помощь. Предоставь краткое описание проекта и основных возможностей. Если пользователь задаст конкретный вопрос, ответь на него подробно.
+    """.trimIndent()
+}}
+                """.trimIndent()
+                
+                val defaultAgent = AIAgent(
+                    deepSeek = deepSeek ?: DeepSeek(apiKey = settings.deepSeekApiKey),
+                    ragService = null,
+                    maxIterations = 5,
+                    customSystemPrompt = helpSystemPrompt,
+                    mcpServerManager = null,
+                    projectTools = null
+                )
+                defaultAgent.initialize()
+                
+                val userQuery = if (query.isNotBlank()) {
+                    query
+                } else {
+                    "Расскажи о проекте AI Advent Ultimate и его основных возможностях"
+                }
+                
+                val result = defaultAgent.processMessage(
+                    userMessage = userQuery,
+                    conversationHistory = emptyList(),
+                    useRAG = false,
+                    temperature = settings.temperature,
+                    maxTokens = settings.maxTokens
+                )
+                
+                val aiMessage = ChatMessage(
+                    text = result.response,
+                    isUser = false
+                )
+                _messages.value = _messages.value + aiMessage
+                
+                saveChat()
+                
+                if (_enableVoiceOutput.value && voiceOutputService.isSupported() && result.shortPhrase.isNotBlank()) {
+                    launch {
+                        voiceOutputService.speak(result.shortPhrase).onFailure { error ->
+                            println("Voice output error: ${error.message}")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                val errorMessage = ChatMessage(
+                    text = "Ошибка при обработке команды /help: ${e.message}",
+                    isUser = false
+                )
+                _messages.value = _messages.value + errorMessage
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+    
     fun openProject(path: String) {
         viewModelScope.launch {
             try {
@@ -733,20 +918,20 @@ $messageText
     private fun indexProjectMarkdownFiles(project: com.qualiorstudio.aiadventultimate.model.Project) {
         viewModelScope.launch {
             try {
-                println("🔍 Поиск Markdown файлов в проекте...")
-                val markdownFiles = com.qualiorstudio.aiadventultimate.utils.ProjectScanner.findMarkdownFiles(project)
+                println("🔍 Поиск файлов в проекте...")
+                val projectFiles = com.qualiorstudio.aiadventultimate.utils.ProjectScanner.findProjectFiles(project)
                 
-                if (markdownFiles.isEmpty()) {
-                    println("📭 Markdown файлы не найдены")
+                if (projectFiles.isEmpty()) {
+                    println("📭 Файлы не найдены")
                     return@launch
                 }
                 
-                println("📚 Найдено ${markdownFiles.size} Markdown файлов. Начинаю индексацию...")
+                println("📚 Найдено ${projectFiles.size} файлов. Начинаю индексацию...")
                 
                 embeddingViewModel?.let { vm ->
-                    val result = vm.processHtmlFiles(markdownFiles)
+                    val result = vm.processHtmlFiles(projectFiles)
                     result.onSuccess { chunksCount ->
-                        println("✅ Успешно проиндексировано ${markdownFiles.size} файлов ($chunksCount чанков)")
+                        println("✅ Успешно проиндексировано ${projectFiles.size} файлов ($chunksCount чанков)")
                     }.onFailure { error ->
                         println("❌ Ошибка индексации: ${error.message}")
                     }
@@ -754,7 +939,7 @@ $messageText
                     println("⚠️ EmbeddingViewModel не доступна для индексации")
                 }
             } catch (e: Exception) {
-                println("❌ Ошибка при индексации Markdown файлов: ${e.message}")
+                println("❌ Ошибка при индексации файлов проекта: ${e.message}")
                 e.printStackTrace()
             }
         }

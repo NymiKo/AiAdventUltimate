@@ -50,6 +50,7 @@ kotlin {
             implementation(libs.ktor.clientCio)
             implementation(libs.ktor.clientContentNegotiation)
             implementation(libs.ktor.serializationKotlinxJson)
+            implementation(libs.multiplatform.markdown.renderer.m3)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

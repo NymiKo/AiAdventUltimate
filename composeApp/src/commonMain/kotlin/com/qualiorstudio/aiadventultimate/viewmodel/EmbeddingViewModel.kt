@@ -150,7 +150,29 @@ class EmbeddingViewModel(
                             )
                         }
                         else -> {
-                            Result.failure(Exception("Неподдерживаемый тип файла: $fileExtension"))
+                            try {
+                                val fileContent = file.readText()
+                                if (fileContent.isNotBlank() && fileContent.length < 10_000_000) {
+                                    processTextFile(
+                                        textContent = fileContent,
+                                        fileName = fileName,
+                                        fileExtension = fileExtension,
+                                        model = modelToUse,
+                                        updateProgress = { status, step, totalSteps ->
+                                            _progress.value = _progress.value.copy(
+                                                status = "$status ($fileName)",
+                                                currentStep = step,
+                                                totalSteps = totalSteps
+                                            )
+                                        }
+                                    )
+                                } else {
+                                    Result.success(0)
+                                }
+                            } catch (e: Exception) {
+                                println("Не удалось прочитать файл $fileName: ${e.message}")
+                                Result.success(0)
+                            }
                         }
                     }
                     
@@ -248,6 +270,28 @@ class EmbeddingViewModel(
             }
             
             return processTextContent(markdownContent, title, fileName, "markdown", model, updateProgress)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    private suspend fun processTextFile(
+        textContent: String,
+        fileName: String,
+        fileExtension: String,
+        model: String? = null,
+        updateProgress: (String, Int, Int) -> Unit = { _, _, _ -> }
+    ): Result<Int> {
+        return try {
+            updateProgress("Обработка текстового файла...", 1, 3)
+            
+            val title = fileName.substringBeforeLast('.')
+            
+            if (textContent.isBlank()) {
+                return Result.success(0)
+            }
+            
+            return processTextContent(textContent, title, fileName, fileExtension, model, updateProgress)
         } catch (e: Exception) {
             Result.failure(e)
         }

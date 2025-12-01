@@ -3,6 +3,7 @@ package com.qualiorstudio.aiadventultimate
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,8 +32,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.mikepenz.markdown.m3.Markdown
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
 import com.qualiorstudio.aiadventultimate.model.ChatResponseVariant
+import com.qualiorstudio.aiadventultimate.model.Command
+import com.qualiorstudio.aiadventultimate.model.Commands
 import com.qualiorstudio.aiadventultimate.repository.AgentConnectionRepository
 import com.qualiorstudio.aiadventultimate.repository.AgentConnectionRepositoryImpl
 import com.qualiorstudio.aiadventultimate.repository.ChatRepository
@@ -467,6 +471,21 @@ fun ChatContent(
     currentBranch: String? = null,
     onProjectClick: () -> Unit = {}
 ) {
+    val isCommandMode = messageText.startsWith("/")
+    val commandQuery = if (isCommandMode) {
+        messageText.substring(1).trim()
+    } else {
+        ""
+    }
+    
+    val filteredCommands = if (isCommandMode && commandQuery.isNotEmpty()) {
+        Commands.filterByQuery(commandQuery)
+    } else if (isCommandMode) {
+        Commands.ALL
+    } else {
+        emptyList()
+    }
+    
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -479,8 +498,7 @@ fun ChatContent(
                 LazyColumn(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp),
+                        .fillMaxWidth(),
                     state = listState
                 ) {
                     items(messages) { message ->
@@ -494,33 +512,59 @@ fun ChatContent(
                     }
                 }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    TextField(
-                        value = messageText,
-                        onValueChange = onMessageTextChange,
-                        modifier = Modifier.weight(1f),
-                        placeholder = { 
-                            Text(
-                                when {
-                                    isRecording -> "Идет запись..."
-                                    isProcessingVoice -> "Обработка голоса..."
-                                    else -> "Введите сообщение..."
+                    if (isCommandMode && filteredCommands.isNotEmpty()) {
+                        CommandMenu(
+                            commands = filteredCommands,
+                            onCommandSelected = { command ->
+                                val currentText = messageText
+                                val afterSlash = if (currentText.startsWith("/")) {
+                                    currentText.substring(1).trim()
+                                } else {
+                                    currentText
                                 }
-                            )
-                        },
-                        enabled = !isLoading && !isRecording && !isProcessingVoice,
-                        shape = RoundedCornerShape(24.dp),
-                        colors = TextFieldDefaults.colors(
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent
+                                val remainingText = if (afterSlash.startsWith(command.name)) {
+                                    afterSlash.substring(command.name.length).trim()
+                                } else {
+                                    afterSlash
+                                }
+                                onMessageTextChange("/${command.name}${if (remainingText.isNotEmpty()) " $remainingText" else ""}")
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
                         )
-                    )
+                    }
+                    
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextField(
+                            value = messageText,
+                            onValueChange = onMessageTextChange,
+                            modifier = Modifier.weight(1f),
+                            placeholder = { 
+                                Text(
+                                    when {
+                                        isRecording -> "Идет запись..."
+                                        isProcessingVoice -> "Обработка голоса..."
+                                        else -> "Введите сообщение..."
+                                    }
+                                )
+                            },
+                            enabled = !isLoading && !isRecording && !isProcessingVoice,
+                            shape = RoundedCornerShape(24.dp),
+                            colors = TextFieldDefaults.colors(
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                disabledIndicatorColor = Color.Transparent
+                            )
+                        )
 
                     Spacer(modifier = Modifier.width(8.dp))
 
@@ -606,59 +650,141 @@ fun ChatContent(
                 }
             }
         }
+    }
 
+@Composable
+fun CommandMenu(
+    commands: List<Command>,
+    onCommandSelected: (Command) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .widthIn(max = 400.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(8.dp)
+        ) {
+            Text(
+                text = "Команды",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+            commands.forEach { command ->
+                CommandMenuItem(
+                    command = command,
+                    onClick = { onCommandSelected(command) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CommandMenuItem(
+    command: Command,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = command.fullCommand,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = command.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            command.example?.let { example ->
+                Text(
+                    text = "Пример: $example",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
+    }
+}
 
 @Composable
 fun ChatMessageItem(message: ChatMessage) {
-    Row(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = if (message.isUser) Arrangement.End else Arrangement.Start
+            .padding(vertical = 4.dp, horizontal = 8.dp)
     ) {
-        Column(
-            horizontalAlignment = if (message.isUser) Alignment.End else Alignment.Start,
-            modifier = Modifier.widthIn(max = 320.dp)
+        val maxWidth = maxWidth * 0.75f
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (message.isUser) Arrangement.End else Arrangement.Start
         ) {
-            if (!message.isUser && message.agentName != null) {
-                Text(
-                    text = message.agentName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 4.dp, start = 4.dp)
-                )
-            }
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (message.isUser)
-                        MaterialTheme.colorScheme.primary
-                    else
-                        MaterialTheme.colorScheme.secondaryContainer
-                ),
-                shape = RoundedCornerShape(
-                    topStart = 16.dp,
-                    topEnd = 16.dp,
-                    bottomStart = if (message.isUser) 16.dp else 4.dp,
-                    bottomEnd = if (message.isUser) 4.dp else 16.dp
-                )
+            Column(
+                horizontalAlignment = if (message.isUser) Alignment.End else Alignment.Start,
+                modifier = Modifier.widthIn(max = maxWidth)
             ) {
-                Text(
-                    text = message.text,
-                    modifier = Modifier.padding(12.dp),
-                    color = if (message.isUser)
-                        MaterialTheme.colorScheme.onPrimary
-                    else
-                        MaterialTheme.colorScheme.onSecondaryContainer
-                )
-            }
+                if (!message.isUser && message.agentName != null) {
+                    Text(
+                        text = message.agentName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 4.dp, start = 4.dp)
+                    )
+                }
+                Card(
+                    modifier = Modifier.wrapContentWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (message.isUser)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    shape = RoundedCornerShape(
+                        topStart = 16.dp,
+                        topEnd = 16.dp,
+                        bottomStart = if (message.isUser) 16.dp else 4.dp,
+                        bottomEnd = if (message.isUser) 4.dp else 16.dp
+                    )
+                ) {
+                    CompositionLocalProvider(
+                        LocalContentColor provides if (message.isUser)
+                            MaterialTheme.colorScheme.onPrimary
+                        else
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                    ) {
+                        Markdown(
+                            content = message.text,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                }
 
-            if (!message.isUser && message.variants.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                message.variants.forEachIndexed { index, variant ->
-                    ResponseVariantCard(variant = variant)
-                    if (index != message.variants.lastIndex) {
-                        Spacer(modifier = Modifier.height(6.dp))
+                if (!message.isUser && message.variants.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    message.variants.forEachIndexed { index, variant ->
+                        ResponseVariantCard(variant = variant)
+                        if (index != message.variants.lastIndex) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
                     }
                 }
             }
@@ -717,10 +843,9 @@ fun ResponseVariantCard(variant: ChatResponseVariant) {
 
             if (expanded) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = variant.body,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.bodyMedium
+                Markdown(
+                    content = variant.body,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         }
