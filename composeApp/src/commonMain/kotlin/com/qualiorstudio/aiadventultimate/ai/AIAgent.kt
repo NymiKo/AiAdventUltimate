@@ -16,7 +16,9 @@ class AIAgent(
     private val deepSeek: DeepSeek,
     private val ragService: RAGService? = null,
     private val maxIterations: Int = 10,
-    private val customSystemPrompt: String? = null
+    private val customSystemPrompt: String? = null,
+    private val mcpServerManager: com.qualiorstudio.aiadventultimate.mcp.MCPServerManager? = null,
+    private val projectTools: ProjectTools? = null
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private var tools: List<DeepSeekTool> = emptyList()
@@ -46,7 +48,26 @@ The context from the knowledge base will be clearly marked in the user's message
         get() = customSystemPrompt ?: defaultSystemPrompt
 
     suspend fun initialize() {
-        tools = emptyList()
+        val mcpTools = mcpServerManager?.getAvailableTools() ?: emptyList()
+        val projectToolsList = projectTools?.getTools() ?: emptyList()
+        tools = mcpTools + projectToolsList
+        println("=== AIAgent.initialize() ===")
+        println("Загружено MCP инструментов: ${mcpTools.size}")
+        println("Загружено инструментов проекта: ${projectToolsList.size}")
+        println("Всего инструментов: ${tools.size}")
+        if (tools.isEmpty()) {
+            println("⚠️ ВНИМАНИЕ: Нет доступных инструментов!")
+            if (mcpServerManager == null) {
+                println("  Причина: mcpServerManager = null")
+            }
+            if (projectTools == null) {
+                println("  Причина: projectTools = null")
+            }
+        } else {
+            tools.forEachIndexed { index, tool ->
+                println("  [$index] ${tool.function.name}: ${tool.function.description.take(60)}...")
+            }
+        }
     }
 
     suspend fun processMessage(
@@ -127,11 +148,17 @@ The context from the knowledge base will be clearly marked in the user's message
         return try {
             println("=== Sending request to DeepSeek ===")
             println("Tools count: ${tools.size}")
-            tools.forEachIndexed { index, tool ->
-                println("Tool $index: ${tool.function.name}")
+            if (tools.isEmpty()) {
+                println("⚠️ ВНИМАНИЕ: Инструменты не передаются в запрос!")
+                println("  Проверьте, что MCP серверы инициализированы и возвращают инструменты")
+            } else {
+                println("✓ Инструменты будут переданы в запрос:")
+                tools.forEachIndexed { index, tool ->
+                    println("  [$index] ${tool.function.name}: ${tool.function.description.take(80)}...")
+                }
             }
 
-            var response = deepSeek.sendMessage(messages, tools, temperature = temperature, maxTokens = maxTokens)
+            var response = deepSeek.sendMessage(messages, tools.ifEmpty { null }, temperature = temperature, maxTokens = maxTokens)
             var currentMessages = messages.toMutableList()
 
             var iterationCount = 0
@@ -157,11 +184,40 @@ The context from the knowledge base will be clearly marked in the user's message
                     println("  Arguments: $argumentsStr")
 
                     try {
-                        println("  Tool call received but no tools available")
+                        val argumentsJson = json.parseToJsonElement(argumentsStr).jsonObject
+                        
+                        val result = when {
+                            mcpServerManager?.hasTools(functionName) == true -> {
+                                mcpServerManager.callTool(functionName, argumentsJson)
+                            }
+                            projectTools != null && isProjectTool(functionName) -> {
+                                projectTools.executeTool(functionName, argumentsJson)
+                            }
+                            else -> null
+                        }
+                        
+                        val resultContent = result?.let {
+                            when {
+                                it is JsonObject && it.containsKey("text") -> it["text"]?.jsonPrimitive?.content ?: it.toString()
+                                it is JsonObject && it.containsKey("content") -> {
+                                    val content = it["content"]
+                                    if (content is JsonArray) {
+                                        content.joinToString("\n") { item ->
+                                            (item as? JsonObject)?.get("text")?.jsonPrimitive?.content ?: item.toString()
+                                        }
+                                    } else {
+                                        content.toString()
+                                    }
+                                }
+                                else -> it.toString()
+                            }
+                        } ?: "Tool $functionName executed successfully"
+                        
+                        println("  Tool result: ${resultContent.take(200)}")
                         currentMessages.add(
                             DeepSeekMessage(
                                 role = "tool",
-                                content = "Tool $functionName is not available",
+                                content = resultContent,
                                 toolCallId = toolCall.id,
                                 type = "tool"
                             )
@@ -172,7 +228,7 @@ The context from the knowledge base will be clearly marked in the user's message
                         currentMessages.add(
                             DeepSeekMessage(
                                 role = "tool",
-                                content = "Error executing tool: ${e.message}",
+                                content = "Error executing tool $functionName: ${e.message}",
                                 toolCallId = toolCall.id,
                                 type = "tool"
                             )
@@ -305,6 +361,16 @@ The context from the knowledge base will be clearly marked in the user's message
         val updatedHistory: List<DeepSeekMessage>
     )
 
+    private fun isProjectTool(functionName: String): Boolean {
+        return functionName in listOf(
+            "list_files",
+            "read_file",
+            "write_file",
+            "search_in_files",
+            "get_file_info"
+        )
+    }
+    
     fun close() {
         ragService?.close()
     }

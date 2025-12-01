@@ -41,3 +41,12 @@ actual fun getAgentConnectionsFilePath(): String {
     }
 }
 
+actual fun getMCPServersFilePath(): String {
+    val dataDir = getDataDirectory()
+    return if (dataDir.isNotEmpty()) {
+        "$dataDir/mcp_servers.json"
+    } else {
+        "mcp_servers.json"
+    }
+}
+

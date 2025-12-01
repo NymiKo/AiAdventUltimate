@@ -134,6 +134,21 @@ class EmbeddingViewModel(
                                 }
                             )
                         }
+                        "md", "markdown" -> {
+                            val markdownContent = file.readText()
+                            processMarkdownFile(
+                                markdownContent = markdownContent,
+                                fileName = fileName,
+                                model = modelToUse,
+                                updateProgress = { status, step, totalSteps ->
+                                    _progress.value = _progress.value.copy(
+                                        status = "$status ($fileName)",
+                                        currentStep = step,
+                                        totalSteps = totalSteps
+                                    )
+                                }
+                            )
+                        }
                         else -> {
                             Result.failure(Exception("Неподдерживаемый тип файла: $fileExtension"))
                         }
@@ -212,6 +227,27 @@ class EmbeddingViewModel(
             }
             
             return processTextContent(text, title, fileName, "pdf", model, updateProgress)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    private suspend fun processMarkdownFile(
+        markdownContent: String,
+        fileName: String,
+        model: String? = null,
+        updateProgress: (String, Int, Int) -> Unit = { _, _, _ -> }
+    ): Result<Int> {
+        return try {
+            updateProgress("Обработка Markdown файла...", 1, 3)
+            
+            val title = fileName.substringBeforeLast('.')
+            
+            if (markdownContent.isBlank()) {
+                return Result.failure(Exception("Файл пустой"))
+            }
+            
+            return processTextContent(markdownContent, title, fileName, "markdown", model, updateProgress)
         } catch (e: Exception) {
             Result.failure(e)
         }

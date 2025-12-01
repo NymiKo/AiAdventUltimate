@@ -14,8 +14,12 @@ import com.qualiorstudio.aiadventultimate.repository.AgentConnectionRepository
 import com.qualiorstudio.aiadventultimate.repository.AgentConnectionRepositoryImpl
 import com.qualiorstudio.aiadventultimate.repository.ChatRepository
 import com.qualiorstudio.aiadventultimate.repository.ChatRepositoryImpl
+import com.qualiorstudio.aiadventultimate.repository.MCPServerRepository
+import com.qualiorstudio.aiadventultimate.repository.MCPServerRepositoryImpl
+import com.qualiorstudio.aiadventultimate.mcp.createMCPServerManager
 import com.qualiorstudio.aiadventultimate.utils.currentTimeMillis
 import com.qualiorstudio.aiadventultimate.voice.createVoiceOutputService
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,16 +29,22 @@ import java.util.UUID
 class ChatViewModel(
     private val settingsViewModel: SettingsViewModel? = null,
     private val chatRepository: ChatRepository? = null,
-    private val connectionRepository: AgentConnectionRepository? = null
+    private val connectionRepository: AgentConnectionRepository? = null,
+    private val mcpServerRepository: MCPServerRepository? = null,
+    private val projectRepository: com.qualiorstudio.aiadventultimate.repository.ProjectRepository? = null,
+    private val embeddingViewModel: EmbeddingViewModel? = null
 ) : ViewModel() {
     private val repository = chatRepository ?: ChatRepositoryImpl()
     private val connectionRepo = connectionRepository ?: AgentConnectionRepositoryImpl()
+    private val projectRepo = projectRepository ?: com.qualiorstudio.aiadventultimate.repository.ProjectRepositoryImpl()
     private val voiceOutputService = createVoiceOutputService()
+    private val mcpManager = createMCPServerManager()
     
     private var deepSeek: DeepSeek? = null
     private var ragService: RAGService? = null
     private val agentInstances = mutableMapOf<String, AIAgent>()
     private var coordinatorAgent: AIAgent? = null
+    private var mcpInitialized = false
     private var lastApiKey: String? = null
     private var lastLmStudioUrl: String? = null
     private var lastTopK: Int? = null
@@ -47,6 +57,25 @@ class ChatViewModel(
     
     private val _useCoordinator = MutableStateFlow(true)
     val useCoordinator: StateFlow<Boolean> = _useCoordinator.asStateFlow()
+    
+    val currentProject: StateFlow<com.qualiorstudio.aiadventultimate.model.Project?> = projectRepo.currentProject
+    
+    private val _currentBranch = MutableStateFlow<String?>(null)
+    val currentBranch: StateFlow<String?> = _currentBranch.asStateFlow()
+    
+    private val gitBranchService = com.qualiorstudio.aiadventultimate.service.createGitBranchService()
+    
+    init {
+        viewModelScope.launch {
+            currentProject.collect { project ->
+                if (project != null) {
+                    updateCurrentBranch(project.path)
+                } else {
+                    _currentBranch.value = null
+                }
+            }
+        }
+    }
     
     private val coordinatorSystemPrompt = """
 Ты агент-координатор в мультиагентной системе. Твоя задача - анализировать запросы пользователя и выбирать наиболее подходящего специализированного агента из доступных для ответа.
@@ -110,6 +139,32 @@ AGENT_ID: <id_агента>
                 rerankMinScore = settings.rerankMinScore,
                 rerankedRetentionRatio = settings.rerankedRetentionRatio
             )
+            
+            // Инициализируем MCP серверы
+            val mcpRepo = mcpServerRepository ?: MCPServerRepositoryImpl()
+            viewModelScope.launch {
+                try {
+                    mcpManager.initializeServers(mcpRepo)
+                    mcpInitialized = true
+                    val tools = mcpManager.getAvailableTools()
+                    println("✓ MCP серверы инициализированы. Доступно инструментов: ${tools.size}")
+                    tools.forEach { tool ->
+                        println("  - ${tool.function.name}: ${tool.function.description}")
+                    }
+                    // Переинициализируем всех агентов после загрузки MCP инструментов
+                    coordinatorAgent?.initialize()
+                    agentInstances.values.forEach { it.initialize() }
+                } catch (e: Exception) {
+                    println("Ошибка инициализации MCP серверов: ${e.message}")
+                    e.printStackTrace()
+                    mcpInitialized = true
+                }
+            }
+        }
+        
+        // Создаем ProjectTools если есть открытый проект
+        val projectTools = currentProject.value?.let { 
+            com.qualiorstudio.aiadventultimate.ai.ProjectTools(it)
         }
         
         // Создаем экземпляр координатора, если есть выбранные агенты и координатор включен
@@ -120,7 +175,9 @@ AGENT_ID: <id_агента>
                 deepSeek = deepSeek!!,
                 ragService = null,
                 maxIterations = settings.maxIterations,
-                customSystemPrompt = coordinatorSystemPrompt
+                customSystemPrompt = coordinatorSystemPrompt,
+                mcpServerManager = mcpManager,
+                projectTools = projectTools
             )
         } else if (selectedAgents.isEmpty() || !useCoordinator) {
             coordinatorAgent?.close()
@@ -145,7 +202,9 @@ AGENT_ID: <id_агента>
                     deepSeek = deepSeek!!,
                     ragService = ragService,
                     maxIterations = settings.maxIterations,
-                    customSystemPrompt = agent.systemPrompt
+                    customSystemPrompt = agent.systemPrompt,
+                    mcpServerManager = mcpManager,
+                    projectTools = projectTools
                 )
             }
         }
@@ -276,6 +335,8 @@ AGENT_ID: <id_агента>
         initializeServices()
         viewModelScope.launch {
             try {
+                // Ждем инициализации MCP серверов перед инициализацией агентов
+                delay(2000)
                 coordinatorAgent?.initialize()
                 agentInstances.values.forEach { it.initialize() }
             } catch (e: Exception) {
@@ -334,10 +395,15 @@ AGENT_ID: <id_агента>
             viewModelScope.launch {
                 try {
                     val settings = getSettings()
+                    val projectTools = currentProject.value?.let { 
+                        com.qualiorstudio.aiadventultimate.ai.ProjectTools(it)
+                    }
                     val defaultAgent = AIAgent(
                         deepSeek = deepSeek ?: DeepSeek(apiKey = settings.deepSeekApiKey),
                         ragService = ragService,
-                        maxIterations = settings.maxIterations
+                        maxIterations = settings.maxIterations,
+                        mcpServerManager = mcpManager,
+                        projectTools = projectTools
                     )
                     defaultAgent.initialize()
                     val result = defaultAgent.processMessage(
@@ -609,6 +675,80 @@ $messageText
     
     fun toggleCoordinator() {
         _useCoordinator.value = !_useCoordinator.value
+    }
+    
+    fun openProject(path: String) {
+        viewModelScope.launch {
+            try {
+                projectRepo.openProject(path)
+                initializeServices()
+                coordinatorAgent?.initialize()
+                agentInstances.values.forEach { it.initialize() }
+                
+                currentProject.value?.let { project ->
+                    indexProjectMarkdownFiles(project)
+                    updateCurrentBranch(project.path)
+                }
+            } catch (e: Exception) {
+                println("Error opening project: ${e.message}")
+                e.printStackTrace()
+            }
+        }
+    }
+    
+    private suspend fun updateCurrentBranch(projectPath: String) {
+        try {
+            val branchInfo = gitBranchService.getGitHubBranchInfo(projectPath, mcpManager)
+            _currentBranch.value = branchInfo?.branch
+        } catch (e: Exception) {
+            println("Ошибка при получении текущей ветки: ${e.message}")
+            _currentBranch.value = null
+        }
+    }
+    
+    private fun indexProjectMarkdownFiles(project: com.qualiorstudio.aiadventultimate.model.Project) {
+        viewModelScope.launch {
+            try {
+                println("🔍 Поиск Markdown файлов в проекте...")
+                val markdownFiles = com.qualiorstudio.aiadventultimate.utils.ProjectScanner.findMarkdownFiles(project)
+                
+                if (markdownFiles.isEmpty()) {
+                    println("📭 Markdown файлы не найдены")
+                    return@launch
+                }
+                
+                println("📚 Найдено ${markdownFiles.size} Markdown файлов. Начинаю индексацию...")
+                
+                embeddingViewModel?.let { vm ->
+                    val result = vm.processHtmlFiles(markdownFiles)
+                    result.onSuccess { chunksCount ->
+                        println("✅ Успешно проиндексировано ${markdownFiles.size} файлов ($chunksCount чанков)")
+                    }.onFailure { error ->
+                        println("❌ Ошибка индексации: ${error.message}")
+                    }
+                } ?: run {
+                    println("⚠️ EmbeddingViewModel не доступна для индексации")
+                }
+            } catch (e: Exception) {
+                println("❌ Ошибка при индексации Markdown файлов: ${e.message}")
+                e.printStackTrace()
+            }
+        }
+    }
+    
+    fun closeProject() {
+        viewModelScope.launch {
+            try {
+                projectRepo.closeProject()
+                _currentBranch.value = null
+                initializeServices()
+                coordinatorAgent?.initialize()
+                agentInstances.values.forEach { it.initialize() }
+            } catch (e: Exception) {
+                println("Error closing project: ${e.message}")
+                e.printStackTrace()
+            }
+        }
     }
     
     override fun onCleared() {

@@ -37,12 +37,20 @@ import com.qualiorstudio.aiadventultimate.repository.AgentConnectionRepository
 import com.qualiorstudio.aiadventultimate.repository.AgentConnectionRepositoryImpl
 import com.qualiorstudio.aiadventultimate.repository.ChatRepository
 import com.qualiorstudio.aiadventultimate.repository.ChatRepositoryImpl
+import com.qualiorstudio.aiadventultimate.repository.MCPServerRepository
+import com.qualiorstudio.aiadventultimate.repository.MCPServerRepositoryImpl
+import com.qualiorstudio.aiadventultimate.service.MCPServerService
+import com.qualiorstudio.aiadventultimate.service.MCPServerServiceImpl
 import com.qualiorstudio.aiadventultimate.ui.AgentConnectionScreen
 import com.qualiorstudio.aiadventultimate.ui.AgentScreen
 import com.qualiorstudio.aiadventultimate.ui.ChatListScreen
+import com.qualiorstudio.aiadventultimate.ui.DesktopSidePanel
 import com.qualiorstudio.aiadventultimate.ui.EmbeddingScreenContent
 import com.qualiorstudio.aiadventultimate.ui.SettingsScreen
+import com.qualiorstudio.aiadventultimate.utils.isDesktop
 import com.qualiorstudio.aiadventultimate.theme.AiAdventUltimateTheme
+import com.qualiorstudio.aiadventultimate.ui.ProjectBar
+import com.qualiorstudio.aiadventultimate.ui.ProjectScreen
 import com.qualiorstudio.aiadventultimate.viewmodel.AgentViewModel
 import com.qualiorstudio.aiadventultimate.viewmodel.ChatViewModel
 import com.qualiorstudio.aiadventultimate.viewmodel.EmbeddingViewModel
@@ -51,7 +59,6 @@ import com.qualiorstudio.aiadventultimate.voice.createVoiceInputService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.ui.tooling.preview.Preview
-import java.io.File
 
 @Composable
 @Preview
@@ -81,17 +88,25 @@ fun ChatScreen(
     settingsViewModel: SettingsViewModel = viewModel { SettingsViewModel() },
     chatRepository: ChatRepository = remember { ChatRepositoryImpl() },
     connectionRepository: AgentConnectionRepository = remember { AgentConnectionRepositoryImpl() },
-    viewModel: ChatViewModel = viewModel { ChatViewModel(settingsViewModel, chatRepository, connectionRepository) },
+    mcpServerRepository: MCPServerRepository = remember { MCPServerRepositoryImpl() },
+    projectRepository: com.qualiorstudio.aiadventultimate.repository.ProjectRepository = remember { com.qualiorstudio.aiadventultimate.repository.ProjectRepositoryImpl() },
+    mcpServerService: MCPServerService = remember { MCPServerServiceImpl() },
     embeddingViewModel: EmbeddingViewModel = viewModel { EmbeddingViewModel() },
+    viewModel: ChatViewModel = viewModel { ChatViewModel(settingsViewModel, chatRepository, connectionRepository, mcpServerRepository, projectRepository, embeddingViewModel) },
     agentViewModel: AgentViewModel = viewModel { AgentViewModel(deepSeekApiKey = settingsViewModel.settings.value.deepSeekApiKey) }
 ) {
     var currentScreen by remember { mutableStateOf("chat") }
     var showChatList by remember { mutableStateOf(false) }
+    var showSidePanel by remember { mutableStateOf(false) }
+    var showProjectScreen by remember { mutableStateOf(false) }
+    val isDesktopPlatform = isDesktop()
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val settings by settingsViewModel.settings.collectAsState()
     val selectedAgents by viewModel.selectedAgents.collectAsState()
     val useCoordinator by viewModel.useCoordinator.collectAsState()
+    val currentProject by viewModel.currentProject.collectAsState()
+    val currentBranch by viewModel.currentBranch.collectAsState()
     val useRAG = settings.useRAG
     var messageText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -99,6 +114,16 @@ fun ChatScreen(
     var isRecording by remember { mutableStateOf(false) }
     var isProcessingVoice by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    
+    LaunchedEffect(Unit) {
+        projectRepository.loadLastProject()
+    }
+    
+    LaunchedEffect(currentScreen) {
+        if (currentScreen != "chat" && isDesktopPlatform) {
+            showSidePanel = false
+        }
+    }
     
     LaunchedEffect(settings.deepSeekApiKey) {
         agentViewModel.setDeepSeekApiKey(settings.deepSeekApiKey)
@@ -132,6 +157,7 @@ fun ChatScreen(
                         )
                         Text(
                             text = when {
+                                showProjectScreen -> "Управление проектом"
                                 showChatList -> "Список чатов"
                                 currentScreen == "chat" -> when {
                                     selectedAgents.isEmpty() -> "AI чат"
@@ -151,6 +177,14 @@ fun ChatScreen(
                 },
                 navigationIcon = {
                     when {
+                        showProjectScreen -> {
+                            IconButton(onClick = { showProjectScreen = false }) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowBack,
+                                    contentDescription = "Назад"
+                                )
+                            }
+                        }
                         currentScreen == "settings" || currentScreen == "agents" || currentScreen == "connections" -> {
                             IconButton(onClick = { 
                                 currentScreen = when (currentScreen) {
@@ -180,11 +214,21 @@ fun ChatScreen(
                                         contentDescription = "Список чатов"
                                     )
                                 }
-                                IconButton(onClick = { currentScreen = "agents" }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Person,
-                                        contentDescription = "Агенты"
-                                    )
+                                if (isDesktopPlatform && currentScreen == "chat") {
+                                    IconButton(onClick = { showSidePanel = !showSidePanel }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = "Агенты",
+                                            tint = if (showSidePanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                } else {
+                                    IconButton(onClick = { currentScreen = "agents" }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = "Агенты"
+                                        )
+                                    }
                                 }
                                 IconButton(onClick = { currentScreen = "settings" }) {
                                     Icon(
@@ -266,101 +310,137 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 32.dp, vertical = 24.dp)
+            Row(
+                modifier = Modifier.fillMaxSize()
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .widthIn(max = 1100.dp)
-                        .align(Alignment.Center)
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .padding(horizontal = 32.dp, vertical = 24.dp)
                 ) {
-                    when {
-                        showChatList -> {
-                            ChatListScreen(
-                                chatRepository = chatRepository,
-                                onChatSelected = { chatId ->
-                                    viewModel.loadChat(chatId)
-                                    showChatList = false
-                                },
-                                onCreateNewChat = {
-                                    viewModel.createNewChat()
-                                    showChatList = false
-                                }
-                            )
-                        }
-                        currentScreen == "embeddings" -> {
-                            EmbeddingScreenContent(
-                                viewModel = embeddingViewModel,
-                                onFilesSelected = { filePaths ->
-                                    if (filePaths.isNotEmpty()) {
-                                        coroutineScope.launch {
-                                            try {
-                                                embeddingViewModel.processHtmlFiles(filePaths)
-                                            } catch (e: Exception) {
-                                                println("Failed to process files: ${e.message}")
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .widthIn(max = 1100.dp)
+                            .align(Alignment.Center)
+                    ) {
+                        when {
+                            showProjectScreen -> {
+                                ProjectScreen(
+                                    currentProject = currentProject,
+                                    onOpenProject = { path ->
+                                        viewModel.openProject(path)
+                                        showProjectScreen = false
+                                    },
+                                    onCloseProject = {
+                                        viewModel.closeProject()
+                                        showProjectScreen = false
+                                    }
+                                )
+                            }
+                            showChatList -> {
+                                ChatListScreen(
+                                    chatRepository = chatRepository,
+                                    onChatSelected = { chatId ->
+                                        viewModel.loadChat(chatId)
+                                        showChatList = false
+                                    },
+                                    onCreateNewChat = {
+                                        viewModel.createNewChat()
+                                        showChatList = false
+                                    }
+                                )
+                            }
+                            currentScreen == "embeddings" -> {
+                                EmbeddingScreenContent(
+                                    viewModel = embeddingViewModel,
+                                    onFilesSelected = { filePaths ->
+                                        if (filePaths.isNotEmpty()) {
+                                            coroutineScope.launch {
+                                                try {
+                                                    embeddingViewModel.processHtmlFiles(filePaths)
+                                                } catch (e: Exception) {
+                                                    println("Failed to process files: ${e.message}")
+                                                }
                                             }
                                         }
                                     }
-                                }
-                            )
-                        }
-                        currentScreen == "settings" -> {
-                            SettingsScreen(
-                                viewModel = settingsViewModel,
-                                onBack = { currentScreen = "chat" }
-                            )
-                        }
-                        currentScreen == "agents" -> {
-                            AgentScreen(
-                                agentViewModel = agentViewModel,
-                                selectedAgents = selectedAgents,
-                                useCoordinator = useCoordinator,
-                                onBack = { currentScreen = "chat" },
-                                onAgentsSelected = { agents ->
-                                    viewModel.setSelectedAgents(agents)
-                                },
-                                onUseCoordinatorChange = { enabled ->
-                                    viewModel.setUseCoordinator(enabled)
-                                },
-                                onShowConnections = { currentScreen = "connections" }
-                            )
-                        }
-                        currentScreen == "connections" -> {
-                            AgentConnectionScreen(
-                                agents = agentViewModel.agents.value,
-                                connectionRepository = connectionRepository,
-                                onBack = { currentScreen = "agents" }
-                            )
-                        }
-                        else -> {
-                            ChatContent(
-                                messages = messages,
-                                isLoading = isLoading,
-                                messageText = messageText,
-                                onMessageTextChange = { messageText = it },
-                                listState = listState,
-                                voiceService = voiceService,
-                                isRecording = isRecording,
-                                isProcessingVoice = isProcessingVoice,
-                                onIsRecordingChange = { isRecording = it },
-                                onIsProcessingVoiceChange = { isProcessingVoice = it },
-                                onSendMessage = {
-                                    val currentText = messageText
-                                    viewModel.sendMessage(currentText)
-                                    messageText = ""
-                                },
-                                onSendMessageWithText = { text ->
-                                    viewModel.sendMessage(text)
-                                    messageText = ""
-                                },
-                                coroutineScope = coroutineScope,
-                                enableVoiceInput = settings.enableVoiceInput
-                            )
+                                )
+                            }
+                            currentScreen == "settings" -> {
+                                SettingsScreen(
+                                    viewModel = settingsViewModel,
+                                    onBack = { currentScreen = "chat" }
+                                )
+                            }
+                            currentScreen == "agents" -> {
+                                AgentScreen(
+                                    agentViewModel = agentViewModel,
+                                    selectedAgents = selectedAgents,
+                                    useCoordinator = useCoordinator,
+                                    onBack = { currentScreen = "chat" },
+                                    onAgentsSelected = { agents ->
+                                        viewModel.setSelectedAgents(agents)
+                                    },
+                                    onUseCoordinatorChange = { enabled ->
+                                        viewModel.setUseCoordinator(enabled)
+                                    },
+                                    onShowConnections = { currentScreen = "connections" }
+                                )
+                            }
+                            currentScreen == "connections" -> {
+                                AgentConnectionScreen(
+                                    agents = agentViewModel.agents.value,
+                                    connectionRepository = connectionRepository,
+                                    onBack = { currentScreen = "agents" }
+                                )
+                            }
+                            else -> {
+                                ChatContent(
+                                    messages = messages,
+                                    isLoading = isLoading,
+                                    messageText = messageText,
+                                    onMessageTextChange = { messageText = it },
+                                    listState = listState,
+                                    voiceService = voiceService,
+                                    isRecording = isRecording,
+                                    isProcessingVoice = isProcessingVoice,
+                                    onIsRecordingChange = { isRecording = it },
+                                    onIsProcessingVoiceChange = { isProcessingVoice = it },
+                                    onSendMessage = {
+                                        val currentText = messageText
+                                        viewModel.sendMessage(currentText)
+                                        messageText = ""
+                                    },
+                                    onSendMessageWithText = { text ->
+                                        viewModel.sendMessage(text)
+                                        messageText = ""
+                                    },
+                                    coroutineScope = coroutineScope,
+                                    enableVoiceInput = settings.enableVoiceInput,
+                                    currentProject = currentProject,
+                                    currentBranch = currentBranch,
+                                    onProjectClick = { showProjectScreen = true }
+                                )
+                            }
                         }
                     }
+                }
+                
+                if (isDesktopPlatform && currentScreen == "chat" && !showChatList) {
+                    DesktopSidePanel(
+                        isOpen = showSidePanel,
+                        onClose = { showSidePanel = false },
+                        agentViewModel = agentViewModel,
+                        selectedAgents = selectedAgents,
+                        onAgentsSelected = { agents ->
+                            viewModel.setSelectedAgents(agents)
+                        },
+                        connectionRepository = connectionRepository,
+                        mcpServerRepository = mcpServerRepository,
+                        mcpServerService = mcpServerService
+                    )
                 }
             }
         }
@@ -382,11 +462,20 @@ fun ChatContent(
     onSendMessage: () -> Unit,
     onSendMessageWithText: (String) -> Unit,
     coroutineScope: CoroutineScope,
-    enableVoiceInput: Boolean = true
+    enableVoiceInput: Boolean = true,
+    currentProject: com.qualiorstudio.aiadventultimate.model.Project? = null,
+    currentBranch: String? = null,
+    onProjectClick: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
+                ProjectBar(
+                    project = currentProject,
+                    currentBranch = currentBranch,
+                    onClick = onProjectClick
+                )
+                
                 LazyColumn(
                     modifier = Modifier
                         .weight(1f)

@@ -8,3 +8,5 @@ expect fun getAgentsFilePath(): String
 
 expect fun getAgentConnectionsFilePath(): String
 
+expect fun getMCPServersFilePath(): String
+

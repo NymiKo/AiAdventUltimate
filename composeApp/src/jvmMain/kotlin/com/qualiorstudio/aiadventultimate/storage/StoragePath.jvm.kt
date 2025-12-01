@@ -23,3 +23,7 @@ actual fun getAgentConnectionsFilePath(): String {
     return File(getDataDirectory(), "agent_connections.json").absolutePath
 }
 
+actual fun getMCPServersFilePath(): String {
+    return File(getDataDirectory(), "mcp_servers.json").absolutePath
+}
+
