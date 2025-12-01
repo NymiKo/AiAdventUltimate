@@ -34,7 +34,21 @@ actual fun FilePickerButton(
         val filePaths = uris.mapNotNull { uri ->
             try {
                 val inputStream = context.contentResolver.openInputStream(uri)
-                val tempFile = File(context.cacheDir, "temp_${System.currentTimeMillis()}_${uris.indexOf(uri)}.html")
+                val mimeType = context.contentResolver.getType(uri) ?: ""
+                val extension = when {
+                    mimeType.contains("pdf") -> "pdf"
+                    mimeType.contains("html") -> "html"
+                    else -> {
+                        val fileName = uri.toString().substringAfterLast("/")
+                        when {
+                            fileName.endsWith(".pdf", ignoreCase = true) -> "pdf"
+                            fileName.endsWith(".html", ignoreCase = true) -> "html"
+                            fileName.endsWith(".htm", ignoreCase = true) -> "html"
+                            else -> "html"
+                        }
+                    }
+                }
+                val tempFile = File(context.cacheDir, "temp_${System.currentTimeMillis()}_${uris.indexOf(uri)}.$extension")
                 val outputStream = FileOutputStream(tempFile)
                 
                 inputStream?.use { input ->
@@ -55,7 +69,8 @@ actual fun FilePickerButton(
     Button(
         onClick = {
             val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                type = "text/html"
+                type = "*/*"
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/html", "application/pdf"))
                 putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                 addCategory(Intent.CATEGORY_OPENABLE)
             }
@@ -70,7 +85,7 @@ actual fun FilePickerButton(
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(8.dp))
-        Text("Загрузить HTML файлы")
+        Text("Загрузить HTML/PDF файлы")
     }
 }
 

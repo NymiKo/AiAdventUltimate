@@ -14,3 +14,30 @@ actual fun getDataDirectory(): String {
     return documentDirectory?.path ?: ""
 }
 
+actual fun getChatsFilePath(): String {
+    val dataDir = getDataDirectory()
+    return if (dataDir.isNotEmpty()) {
+        "$dataDir/chats.json"
+    } else {
+        "chats.json"
+    }
+}
+
+actual fun getAgentsFilePath(): String {
+    val dataDir = getDataDirectory()
+    return if (dataDir.isNotEmpty()) {
+        "$dataDir/agents.json"
+    } else {
+        "agents.json"
+    }
+}
+
+actual fun getAgentConnectionsFilePath(): String {
+    val dataDir = getDataDirectory()
+    return if (dataDir.isNotEmpty()) {
+        "$dataDir/agent_connections.json"
+    } else {
+        "agent_connections.json"
+    }
+}
+

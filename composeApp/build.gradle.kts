@@ -33,6 +33,7 @@ kotlin {
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
+            implementation(libs.pdfbox)
         }
         commonMain.dependencies {
             implementation(compose.runtime)
@@ -56,6 +57,7 @@ kotlin {
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
+            implementation(libs.pdfbox)
         }
     }
 }

@@ -15,12 +15,13 @@ data class ProcessMessageResult(
 class AIAgent(
     private val deepSeek: DeepSeek,
     private val ragService: RAGService? = null,
-    private val maxIterations: Int = 10
+    private val maxIterations: Int = 10,
+    private val customSystemPrompt: String? = null
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private var tools: List<DeepSeekTool> = emptyList()
     
-    private val systemPrompt = """
+    private val defaultSystemPrompt = """
 You are a helpful AI assistant.
 Be friendly, helpful, and proactive.
 
@@ -40,6 +41,9 @@ CITATIONS AND REFERENCES:
 
 The context from the knowledge base will be clearly marked in the user's message. Pay close attention to it and use it as your primary and only source of information.
     """.trimIndent()
+    
+    private val systemPrompt: String
+        get() = customSystemPrompt ?: defaultSystemPrompt
 
     suspend fun initialize() {
         tools = emptyList()

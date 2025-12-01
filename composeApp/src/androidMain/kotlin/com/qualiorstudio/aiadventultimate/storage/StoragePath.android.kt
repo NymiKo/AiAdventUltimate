@@ -9,6 +9,18 @@ actual fun getDataDirectory(): String {
     return context.filesDir.absolutePath
 }
 
+actual fun getChatsFilePath(): String {
+    return File(getDataDirectory(), "chats.json").absolutePath
+}
+
+actual fun getAgentsFilePath(): String {
+    return File(getDataDirectory(), "agents.json").absolutePath
+}
+
+actual fun getAgentConnectionsFilePath(): String {
+    return File(getDataDirectory(), "agent_connections.json").absolutePath
+}
+
 private var applicationContext: Context? = null
 
 fun setApplicationContext(context: Context) {

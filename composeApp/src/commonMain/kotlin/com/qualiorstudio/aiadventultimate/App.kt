@@ -20,6 +20,8 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,9 +33,17 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
 import com.qualiorstudio.aiadventultimate.model.ChatResponseVariant
+import com.qualiorstudio.aiadventultimate.repository.AgentConnectionRepository
+import com.qualiorstudio.aiadventultimate.repository.AgentConnectionRepositoryImpl
+import com.qualiorstudio.aiadventultimate.repository.ChatRepository
+import com.qualiorstudio.aiadventultimate.repository.ChatRepositoryImpl
+import com.qualiorstudio.aiadventultimate.ui.AgentConnectionScreen
+import com.qualiorstudio.aiadventultimate.ui.AgentScreen
+import com.qualiorstudio.aiadventultimate.ui.ChatListScreen
 import com.qualiorstudio.aiadventultimate.ui.EmbeddingScreenContent
 import com.qualiorstudio.aiadventultimate.ui.SettingsScreen
 import com.qualiorstudio.aiadventultimate.theme.AiAdventUltimateTheme
+import com.qualiorstudio.aiadventultimate.viewmodel.AgentViewModel
 import com.qualiorstudio.aiadventultimate.viewmodel.ChatViewModel
 import com.qualiorstudio.aiadventultimate.viewmodel.EmbeddingViewModel
 import com.qualiorstudio.aiadventultimate.viewmodel.SettingsViewModel
@@ -48,9 +58,20 @@ import java.io.File
 fun App() {
     val settingsViewModel: SettingsViewModel = viewModel { SettingsViewModel() }
     val settings by settingsViewModel.settings.collectAsState()
+    val chatRepository = remember { ChatRepositoryImpl() }
+    val coroutineScope = rememberCoroutineScope()
+    
+    LaunchedEffect(Unit) {
+        coroutineScope.launch {
+            chatRepository.reloadChats()
+        }
+    }
     
     AiAdventUltimateTheme(darkTheme = settings.darkTheme) {
-        ChatScreen(settingsViewModel = settingsViewModel)
+        ChatScreen(
+            settingsViewModel = settingsViewModel,
+            chatRepository = chatRepository
+        )
     }
 }
 
@@ -58,13 +79,19 @@ fun App() {
 @Composable
 fun ChatScreen(
     settingsViewModel: SettingsViewModel = viewModel { SettingsViewModel() },
-    viewModel: ChatViewModel = viewModel { ChatViewModel(settingsViewModel) },
-    embeddingViewModel: EmbeddingViewModel = viewModel { EmbeddingViewModel() }
+    chatRepository: ChatRepository = remember { ChatRepositoryImpl() },
+    connectionRepository: AgentConnectionRepository = remember { AgentConnectionRepositoryImpl() },
+    viewModel: ChatViewModel = viewModel { ChatViewModel(settingsViewModel, chatRepository, connectionRepository) },
+    embeddingViewModel: EmbeddingViewModel = viewModel { EmbeddingViewModel() },
+    agentViewModel: AgentViewModel = viewModel { AgentViewModel(deepSeekApiKey = settingsViewModel.settings.value.deepSeekApiKey) }
 ) {
     var currentScreen by remember { mutableStateOf("chat") }
+    var showChatList by remember { mutableStateOf(false) }
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val settings by settingsViewModel.settings.collectAsState()
+    val selectedAgents by viewModel.selectedAgents.collectAsState()
+    val useCoordinator by viewModel.useCoordinator.collectAsState()
     val useRAG = settings.useRAG
     var messageText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -72,6 +99,10 @@ fun ChatScreen(
     var isRecording by remember { mutableStateOf(false) }
     var isProcessingVoice by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    
+    LaunchedEffect(settings.deepSeekApiKey) {
+        agentViewModel.setDeepSeekApiKey(settings.deepSeekApiKey)
+    }
     
     // Синхронизируем настройки с ChatViewModel
     LaunchedEffect(useRAG) {
@@ -100,10 +131,17 @@ fun ChatScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = when (currentScreen) {
-                                "chat" -> "AI чат"
-                                "embeddings" -> "Индекс эмбеддингов"
-                                "settings" -> "Настройки"
+                            text = when {
+                                showChatList -> "Список чатов"
+                                currentScreen == "chat" -> when {
+                                    selectedAgents.isEmpty() -> "AI чат"
+                                    selectedAgents.size == 1 -> selectedAgents.first().name
+                                    else -> "${selectedAgents.size} агента"
+                                }
+                                currentScreen == "embeddings" -> "Индекс эмбеддингов"
+                                currentScreen == "settings" -> "Настройки"
+                                currentScreen == "agents" -> "Агенты"
+                                currentScreen == "connections" -> "Связи между агентами"
                                 else -> "AI чат"
                             },
                             style = MaterialTheme.typography.labelSmall,
@@ -112,25 +150,80 @@ fun ChatScreen(
                     }
                 },
                 navigationIcon = {
-                    if (currentScreen == "settings") {
-                        IconButton(onClick = { currentScreen = "chat" }) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Назад"
-                            )
+                    when {
+                        currentScreen == "settings" || currentScreen == "agents" || currentScreen == "connections" -> {
+                            IconButton(onClick = { 
+                                currentScreen = when (currentScreen) {
+                                    "connections" -> "agents"
+                                    else -> "chat"
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowBack,
+                                    contentDescription = "Назад"
+                                )
+                            }
                         }
-                    } else {
-                        IconButton(onClick = { currentScreen = "settings" }) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Настройки"
-                            )
+                        showChatList -> {
+                            IconButton(onClick = { showChatList = false }) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowBack,
+                                    contentDescription = "Назад"
+                                )
+                            }
+                        }
+                        else -> {
+                            Row {
+                                IconButton(onClick = { showChatList = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Chat,
+                                        contentDescription = "Список чатов"
+                                    )
+                                }
+                                IconButton(onClick = { currentScreen = "agents" }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = "Агенты"
+                                    )
+                                }
+                                IconButton(onClick = { currentScreen = "settings" }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = "Настройки"
+                                    )
+                                }
+                            }
                         }
                     }
                 },
                 actions = {
-                    when (currentScreen) {
-                        "chat" -> {
+                    when {
+                        currentScreen == "chat" && !showChatList -> {
+                            if (selectedAgents.isNotEmpty()) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "Координатор",
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                        Switch(
+                                            checked = useCoordinator,
+                                            onCheckedChange = { viewModel.setUseCoordinator(it) }
+                                        )
+                                    }
+                                    TextButton(
+                                        onClick = { viewModel.clearSelectedAgents() }
+                                    ) {
+                                        Text("Очистить", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
                             IconButton(onClick = { viewModel.clearChat() }) {
                                 Icon(
                                     imageVector = Icons.Default.Delete,
@@ -146,7 +239,7 @@ fun ChatScreen(
                                 )
                             }
                         }
-                        "embeddings" -> {
+                        currentScreen == "embeddings" -> {
                             IconButton(
                                 onClick = { currentScreen = "chat" }
                             ) {
@@ -184,8 +277,21 @@ fun ChatScreen(
                         .widthIn(max = 1100.dp)
                         .align(Alignment.Center)
                 ) {
-                    when (currentScreen) {
-                        "embeddings" -> {
+                    when {
+                        showChatList -> {
+                            ChatListScreen(
+                                chatRepository = chatRepository,
+                                onChatSelected = { chatId ->
+                                    viewModel.loadChat(chatId)
+                                    showChatList = false
+                                },
+                                onCreateNewChat = {
+                                    viewModel.createNewChat()
+                                    showChatList = false
+                                }
+                            )
+                        }
+                        currentScreen == "embeddings" -> {
                             EmbeddingScreenContent(
                                 viewModel = embeddingViewModel,
                                 onFilesSelected = { filePaths ->
@@ -201,10 +307,32 @@ fun ChatScreen(
                                 }
                             )
                         }
-                        "settings" -> {
+                        currentScreen == "settings" -> {
                             SettingsScreen(
                                 viewModel = settingsViewModel,
                                 onBack = { currentScreen = "chat" }
+                            )
+                        }
+                        currentScreen == "agents" -> {
+                            AgentScreen(
+                                agentViewModel = agentViewModel,
+                                selectedAgents = selectedAgents,
+                                useCoordinator = useCoordinator,
+                                onBack = { currentScreen = "chat" },
+                                onAgentsSelected = { agents ->
+                                    viewModel.setSelectedAgents(agents)
+                                },
+                                onUseCoordinatorChange = { enabled ->
+                                    viewModel.setUseCoordinator(enabled)
+                                },
+                                onShowConnections = { currentScreen = "connections" }
+                            )
+                        }
+                        currentScreen == "connections" -> {
+                            AgentConnectionScreen(
+                                agents = agentViewModel.agents.value,
+                                connectionRepository = connectionRepository,
+                                onBack = { currentScreen = "agents" }
                             )
                         }
                         else -> {
@@ -403,6 +531,14 @@ fun ChatMessageItem(message: ChatMessage) {
             horizontalAlignment = if (message.isUser) Alignment.End else Alignment.Start,
             modifier = Modifier.widthIn(max = 320.dp)
         ) {
+            if (!message.isUser && message.agentName != null) {
+                Text(
+                    text = message.agentName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 4.dp, start = 4.dp)
+                )
+            }
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(

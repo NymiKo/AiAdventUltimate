@@ -19,8 +19,8 @@ actual fun FilePickerButton(
     Button(
         onClick = {
             val fileChooser = JFileChooser(System.getProperty("user.home"))
-            fileChooser.fileFilter = FileNameExtensionFilter("HTML Files", "html", "htm")
-            fileChooser.dialogTitle = "Выберите HTML файлы"
+            fileChooser.fileFilter = FileNameExtensionFilter("HTML и PDF файлы", "html", "htm", "pdf")
+            fileChooser.dialogTitle = "Выберите HTML/PDF файлы"
             fileChooser.isMultiSelectionEnabled = true
             
             val result = fileChooser.showOpenDialog(null)
@@ -41,7 +41,7 @@ actual fun FilePickerButton(
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(8.dp))
-        Text("Загрузить HTML файлы")
+        Text("Загрузить HTML/PDF файлы")
     }
 }
 

@@ -11,3 +11,15 @@ actual fun getDataDirectory(): String {
     return dataDir.absolutePath
 }
 
+actual fun getChatsFilePath(): String {
+    return File(getDataDirectory(), "chats.json").absolutePath
+}
+
+actual fun getAgentsFilePath(): String {
+    return File(getDataDirectory(), "agents.json").absolutePath
+}
+
+actual fun getAgentConnectionsFilePath(): String {
+    return File(getDataDirectory(), "agent_connections.json").absolutePath
+}
+
