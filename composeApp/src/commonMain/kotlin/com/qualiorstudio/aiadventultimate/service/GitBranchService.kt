@@ -10,6 +10,7 @@ interface GitBranchService {
     suspend fun getCurrentBranch(projectPath: String): String?
     suspend fun getGitHubBranchInfo(projectPath: String, mcpManager: MCPServerManager?): GitHubBranchInfo?
     suspend fun getHeadFileLastModified(projectPath: String): Long?
+    suspend fun getBranches(projectPath: String, mcpManager: MCPServerManager?): BranchList?
 }
 
 data class GitHubBranchInfo(
@@ -17,6 +18,11 @@ data class GitHubBranchInfo(
     val isGitHubRepo: Boolean = false,
     val owner: String? = null,
     val repo: String? = null
+)
+
+data class BranchList(
+    val localBranches: List<String>,
+    val remoteBranches: List<String>
 )
 
 class GitBranchServiceImpl : GitBranchService {
@@ -134,6 +140,99 @@ class GitBranchServiceImpl : GitBranchService {
                 
                 headFile.lastModified()
             } catch (e: Exception) {
+                null
+            }
+        }
+    }
+    
+    override suspend fun getBranches(projectPath: String, mcpManager: MCPServerManager?): BranchList? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val gitDir = File(projectPath, ".git")
+                if (!gitDir.exists() || !gitDir.isDirectory) {
+                    return@withContext null
+                }
+                
+                val localBranches = mutableListOf<String>()
+                val remoteBranches = mutableListOf<String>()
+                
+                val refsHeads = File(gitDir, "refs/heads")
+                if (refsHeads.exists() && refsHeads.isDirectory) {
+                    refsHeads.listFiles()?.forEach { branchFile ->
+                        if (branchFile.isFile) {
+                            localBranches.add(branchFile.name)
+                        }
+                    }
+                }
+                
+                val refsRemotes = File(gitDir, "refs/remotes")
+                if (refsRemotes.exists() && refsRemotes.isDirectory) {
+                    refsRemotes.listFiles()?.forEach { remoteDir ->
+                        if (remoteDir.isDirectory) {
+                            remoteDir.listFiles()?.forEach { branchFile ->
+                                if (branchFile.isFile) {
+                                    remoteBranches.add("${remoteDir.name}/${branchFile.name}")
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (mcpManager != null) {
+                    val branchInfo = getGitHubBranchInfo(projectPath, mcpManager)
+                    if (branchInfo?.isGitHubRepo == true && branchInfo.owner != null && branchInfo.repo != null) {
+                        try {
+                            val availableTools = mcpManager.getAvailableTools().map { it.function.name }
+                            val githubListBranchesTool = availableTools.find { 
+                                it.contains("list", ignoreCase = true) && 
+                                it.contains("branch", ignoreCase = true) &&
+                                it.contains("github", ignoreCase = true)
+                            } ?: availableTools.find { 
+                                it.contains("github", ignoreCase = true) && 
+                                it.contains("branch", ignoreCase = true)
+                            }
+                            
+                            if (githubListBranchesTool != null) {
+                                val arguments = buildJsonObject {
+                                    put("owner", branchInfo.owner)
+                                    put("repo", branchInfo.repo)
+                                }
+                                
+                                val result = mcpManager.callTool(githubListBranchesTool, arguments)
+                                
+                                if (result is JsonObject) {
+                                    val branchesArray = result["branches"] as? JsonArray
+                                    branchesArray?.forEach { branchElement ->
+                                        if (branchElement is JsonObject) {
+                                            val name = branchElement["name"]?.jsonPrimitive?.content
+                                            val remote = branchElement["remote"]?.jsonPrimitive?.content?.toBoolean() ?: false
+                                            if (name != null) {
+                                                if (remote) {
+                                                    if (!remoteBranches.contains(name)) {
+                                                        remoteBranches.add(name)
+                                                    }
+                                                } else {
+                                                    if (!localBranches.contains(name)) {
+                                                        localBranches.add(name)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            println("Ошибка при получении веток через MCP: ${e.message}")
+                        }
+                    }
+                }
+                
+                BranchList(
+                    localBranches = localBranches.sorted(),
+                    remoteBranches = remoteBranches.sorted()
+                )
+            } catch (e: Exception) {
+                println("Ошибка при получении списка веток: ${e.message}")
                 null
             }
         }

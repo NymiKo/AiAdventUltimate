@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.ArrowBack
@@ -60,6 +61,7 @@ import com.qualiorstudio.aiadventultimate.viewmodel.ChatViewModel
 import com.qualiorstudio.aiadventultimate.viewmodel.EmbeddingViewModel
 import com.qualiorstudio.aiadventultimate.viewmodel.SettingsViewModel
 import com.qualiorstudio.aiadventultimate.voice.createVoiceInputService
+import com.qualiorstudio.aiadventultimate.mcp.createMCPServerManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.ui.tooling.preview.Preview
@@ -110,7 +112,8 @@ fun ChatScreen(
     val selectedAgents by viewModel.selectedAgents.collectAsState()
     val useCoordinator by viewModel.useCoordinator.collectAsState()
     val currentProject by viewModel.currentProject.collectAsState()
-    val currentBranch by viewModel.currentBranch.collectAsState()
+    val currentBranch = viewModel.currentBranch.collectAsState().value
+    val githubBranchInfo by viewModel.githubBranchInfo.collectAsState()
     val useRAG = settings.useRAG
     var messageText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -118,9 +121,48 @@ fun ChatScreen(
     var isRecording by remember { mutableStateOf(false) }
     var isProcessingVoice by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    val mcpManager = remember { createMCPServerManager() }
     
     LaunchedEffect(Unit) {
         projectRepository.loadLastProject()
+        coroutineScope.launch {
+            try {
+                mcpManager.initializeServers(mcpServerRepository)
+                val tools = mcpManager.getAvailableTools()
+                println("✓ MCP серверы автоматически подключены при запуске. Доступно инструментов: ${tools.size}")
+                
+                val servers = mcpServerRepository.getAllServers()
+                val hasGitHubServer = servers.any { 
+                    it.id == com.qualiorstudio.aiadventultimate.repository.DEFAULT_GITHUB_MCP_SERVER_ID && it.enabled 
+                }
+                
+                if (hasGitHubServer && currentProject != null) {
+                    viewModel.checkGitHubConnection()
+                }
+            } catch (e: Exception) {
+                println("Ошибка автоматического подключения MCP серверов: ${e.message}")
+                e.printStackTrace()
+            }
+        }
+    }
+    
+    LaunchedEffect(currentProject) {
+        if (currentProject != null) {
+            coroutineScope.launch {
+                try {
+                    val servers = mcpServerRepository.getAllServers()
+                    val hasGitHubServer = servers.any { 
+                        it.id == com.qualiorstudio.aiadventultimate.repository.DEFAULT_GITHUB_MCP_SERVER_ID && it.enabled 
+                    }
+                    
+                    if (hasGitHubServer) {
+                        viewModel.checkGitHubConnection()
+                    }
+                } catch (e: Exception) {
+                    println("Ошибка при проверке GitHub подключения: ${e.message}")
+                }
+            }
+        }
     }
     
     LaunchedEffect(currentScreen) {
@@ -153,12 +195,56 @@ fun ChatScreen(
             CenterAlignedTopAppBar(
                 title = {
                     Column {
-                        Text(
-                            text = "AiAdvent Ultimate",
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "AiAdvent Ultimate",
+                                style = MaterialTheme.typography.titleMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (githubBranchInfo?.isGitHubRepo == true && currentBranch != null) {
+                                var expanded by remember { mutableStateOf(false) }
+                                Box {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        shape = MaterialTheme.shapes.small,
+                                        modifier = Modifier.clickable { expanded = true }
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Text(
+                                                text = currentBranch,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                            Icon(
+                                                imageVector = Icons.Default.ArrowDropDown,
+                                                contentDescription = "Выбрать ветку",
+                                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                    
+                                    DropdownMenu(
+                                        expanded = expanded,
+                                        onDismissRequest = { expanded = false }
+                                    ) {
+                                        BranchDropdownMenuContent(
+                                            onBranchSelected = { branch ->
+                                                expanded = false
+                                            },
+                                            viewModel = viewModel
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         Text(
                             text = when {
                                 showProjectScreen -> "Управление проектом"
@@ -939,4 +1025,97 @@ fun TypingDot(delay: Int) {
                 shape = RoundedCornerShape(50)
             )
     )
+}
+
+@Composable
+fun BranchDropdownMenuContent(
+    onBranchSelected: (String) -> Unit,
+    viewModel: com.qualiorstudio.aiadventultimate.viewmodel.ChatViewModel
+) {
+    var branches by remember { mutableStateOf<com.qualiorstudio.aiadventultimate.service.BranchList?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    
+    LaunchedEffect(Unit) {
+        if (branches == null) {
+            isLoading = true
+            coroutineScope.launch {
+                try {
+                    branches = viewModel.getBranches()
+                } catch (e: Exception) {
+                    println("Ошибка при получении списка веток: ${e.message}")
+                } finally {
+                    isLoading = false
+                }
+            }
+        }
+    }
+    
+    if (isLoading) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+        }
+    } else if (branches == null) {
+        DropdownMenuItem(
+            text = { Text("Не удалось загрузить список веток") },
+            onClick = { }
+        )
+    } else {
+        if (branches!!.localBranches.isNotEmpty()) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = "Локальные ветки",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                },
+                onClick = { },
+                enabled = false
+            )
+            Divider()
+            branches!!.localBranches.forEach { branch ->
+                DropdownMenuItem(
+                    text = { Text(branch) },
+                    onClick = { onBranchSelected(branch) }
+                )
+            }
+        }
+        
+        if (branches!!.remoteBranches.isNotEmpty()) {
+            if (branches!!.localBranches.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = "Удаленные ветки",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                },
+                onClick = { },
+                enabled = false
+            )
+            Divider()
+            branches!!.remoteBranches.forEach { branch ->
+                DropdownMenuItem(
+                    text = { Text(branch) },
+                    onClick = { onBranchSelected(branch) }
+                )
+            }
+        }
+        
+        if (branches!!.localBranches.isEmpty() && branches!!.remoteBranches.isEmpty()) {
+            DropdownMenuItem(
+                text = { Text("Ветки не найдены") },
+                onClick = { }
+            )
+        }
+    }
 }

@@ -103,7 +103,7 @@ class MCPServerRepositoryImpl : MCPServerRepository {
             command = "docker",
             args = listOf("run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"),
             env = emptyMap(),
-            enabled = false,
+            enabled = true,
             createdAt = currentTimeMillis(),
             updatedAt = currentTimeMillis()
         )

@@ -17,6 +17,7 @@ import com.qualiorstudio.aiadventultimate.repository.ChatRepository
 import com.qualiorstudio.aiadventultimate.repository.ChatRepositoryImpl
 import com.qualiorstudio.aiadventultimate.repository.MCPServerRepository
 import com.qualiorstudio.aiadventultimate.repository.MCPServerRepositoryImpl
+import com.qualiorstudio.aiadventultimate.repository.DEFAULT_GITHUB_MCP_SERVER_ID
 import com.qualiorstudio.aiadventultimate.mcp.createMCPServerManager
 import com.qualiorstudio.aiadventultimate.utils.currentTimeMillis
 import com.qualiorstudio.aiadventultimate.voice.createVoiceOutputService
@@ -65,6 +66,9 @@ class ChatViewModel(
     
     private val _currentBranch = MutableStateFlow<String?>(null)
     val currentBranch: StateFlow<String?> = _currentBranch.asStateFlow()
+    
+    private val _githubBranchInfo = MutableStateFlow<com.qualiorstudio.aiadventultimate.service.GitHubBranchInfo?>(null)
+    val githubBranchInfo: StateFlow<com.qualiorstudio.aiadventultimate.service.GitHubBranchInfo?> = _githubBranchInfo.asStateFlow()
     
     private val gitBranchService = com.qualiorstudio.aiadventultimate.service.createGitBranchService()
     private var lastHeadModified: Long? = null
@@ -897,6 +901,16 @@ ${if (query.isNotBlank()) {
                 currentProject.value?.let { project ->
                     indexProjectMarkdownFiles(project)
                     updateCurrentBranch(project.path)
+                    
+                    val mcpRepo = mcpServerRepository ?: MCPServerRepositoryImpl()
+                    val servers = mcpRepo.getAllServers()
+                    val hasGitHubServer = servers.any { 
+                        it.id == DEFAULT_GITHUB_MCP_SERVER_ID && it.enabled 
+                    }
+                    
+                    if (hasGitHubServer) {
+                        checkGitHubConnection()
+                    }
                 }
             } catch (e: Exception) {
                 println("Error opening project: ${e.message}")
@@ -909,10 +923,39 @@ ${if (query.isNotBlank()) {
         try {
             val branchInfo = gitBranchService.getGitHubBranchInfo(projectPath, mcpManager)
             _currentBranch.value = branchInfo?.branch
+            _githubBranchInfo.value = branchInfo
         } catch (e: Exception) {
             println("Ошибка при получении текущей ветки: ${e.message}")
             _currentBranch.value = null
+            _githubBranchInfo.value = null
         }
+    }
+    
+    suspend fun getBranches(): com.qualiorstudio.aiadventultimate.service.BranchList? {
+        val project = currentProject.value ?: return null
+        return gitBranchService.getBranches(project.path, mcpManager)
+    }
+    
+    suspend fun checkGitHubConnection() {
+        val project = currentProject.value ?: run {
+            _githubBranchInfo.value = null
+            _currentBranch.value = null
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val branchInfo = gitBranchService.getGitHubBranchInfo(project.path, mcpManager)
+                _githubBranchInfo.value = branchInfo
+                _currentBranch.value = branchInfo?.branch
+            } catch (e: Exception) {
+                println("Ошибка при проверке подключения к GitHub: ${e.message}")
+                _githubBranchInfo.value = null
+            }
+        }
+    }
+    
+    fun clearGitHubInfo() {
+        _githubBranchInfo.value = null
     }
     
     private fun indexProjectMarkdownFiles(project: com.qualiorstudio.aiadventultimate.model.Project) {
@@ -950,6 +993,7 @@ ${if (query.isNotBlank()) {
             try {
                 projectRepo.closeProject()
                 _currentBranch.value = null
+                _githubBranchInfo.value = null
                 initializeServices()
                 coordinatorAgent?.initialize()
                 agentInstances.values.forEach { it.initialize() }
