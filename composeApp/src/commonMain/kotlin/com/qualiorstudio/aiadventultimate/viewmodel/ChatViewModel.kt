@@ -199,8 +199,39 @@ AGENT_ID: <id_агента>
         // Создаем экземпляр координатора, если есть выбранные агенты и координатор включен
         val selectedAgents = _selectedAgents.value
         val useCoordinator = _useCoordinator.value
+        val currentProjectContext = if (_githubBranchInfo.value?.isGitHubRepo == true && 
+            _githubBranchInfo.value?.owner != null && 
+            _githubBranchInfo.value?.repo != null) {
+            val branchInfo = _githubBranchInfo.value!!
+            """
+PROJECT CONTEXT - GITHUB REPOSITORY:
+The current project is connected to a GitHub repository:
+- Repository owner: ${branchInfo.owner}
+- Repository name: ${branchInfo.repo}
+- Current branch: ${branchInfo.branch}
+- Full repository path: ${branchInfo.owner}/${branchInfo.repo}
+
+IMPORTANT: When the user asks questions about the project, repository, code, pull requests, issues, or any GitHub-related information, you MUST use the following repository information:
+- Repository owner: ${branchInfo.owner}
+- Repository name: ${branchInfo.repo}
+
+When calling GitHub MCP tools, ALWAYS use these exact values for the "owner" and "repo" parameters. Do NOT ask the user for this information - it is already provided in this context.
+
+You can use GitHub MCP tools to:
+- Search for files, issues, pull requests, or discussions in this repository
+- Read repository files, issues, or pull requests
+- Get information about the repository structure
+- Search for code, commits, or other repository content
+- List open pull requests, issues, etc.
+
+Example: If the user asks "What open PRs does this project have?", you should immediately use GitHub MCP tools with owner="${branchInfo.owner}" and repo="${branchInfo.repo}" to get the information.
+            """.trimIndent()
+        } else {
+            ""
+        }
+        
         if (selectedAgents.isNotEmpty() && useCoordinator && coordinatorAgent == null) {
-            coordinatorAgent = AIAgent(
+            val newCoordinator = AIAgent(
                 deepSeek = deepSeek!!,
                 ragService = null,
                 maxIterations = settings.maxIterations,
@@ -208,9 +239,13 @@ AGENT_ID: <id_агента>
                 mcpServerManager = mcpManager,
                 projectTools = projectTools
             )
+            newCoordinator.updateProjectContext(currentProjectContext)
+            coordinatorAgent = newCoordinator
         } else if (selectedAgents.isEmpty() || !useCoordinator) {
             coordinatorAgent?.close()
             coordinatorAgent = null
+        } else if (coordinatorAgent != null) {
+            coordinatorAgent?.updateProjectContext(currentProjectContext)
         }
         
         // Создаем экземпляры AIAgent для каждого выбранного агента
@@ -227,7 +262,7 @@ AGENT_ID: <id_агента>
         // Создаем экземпляры для новых агентов
         selectedAgents.forEach { agent ->
             if (!agentInstances.containsKey(agent.id)) {
-                agentInstances[agent.id] = AIAgent(
+                val newAgent = AIAgent(
                     deepSeek = deepSeek!!,
                     ragService = ragService,
                     maxIterations = settings.maxIterations,
@@ -235,6 +270,8 @@ AGENT_ID: <id_агента>
                     mcpServerManager = mcpManager,
                     projectTools = projectTools
                 )
+                newAgent.updateProjectContext(currentProjectContext)
+                agentInstances[agent.id] = newAgent
             }
         }
     }
@@ -894,19 +931,23 @@ ${if (query.isNotBlank()) {
         viewModelScope.launch {
             try {
                 projectRepo.openProject(path)
-                initializeServices()
-                coordinatorAgent?.initialize()
-                agentInstances.values.forEach { it.initialize() }
                 
                 currentProject.value?.let { project ->
-                    indexProjectMarkdownFiles(project)
-                    updateCurrentBranch(project.path)
-                    
                     val mcpRepo = mcpServerRepository ?: MCPServerRepositoryImpl()
                     val servers = mcpRepo.getAllServers()
                     val hasGitHubServer = servers.any { 
                         it.id == DEFAULT_GITHUB_MCP_SERVER_ID && it.enabled 
                     }
+                    
+                    if (hasGitHubServer) {
+                        updateCurrentBranch(project.path)
+                    }
+                    
+                    initializeServices()
+                    coordinatorAgent?.initialize()
+                    agentInstances.values.forEach { it.initialize() }
+                    
+                    indexProjectMarkdownFiles(project)
                     
                     if (hasGitHubServer) {
                         checkGitHubConnection()
@@ -924,11 +965,59 @@ ${if (query.isNotBlank()) {
             val branchInfo = gitBranchService.getGitHubBranchInfo(projectPath, mcpManager)
             _currentBranch.value = branchInfo?.branch
             _githubBranchInfo.value = branchInfo
+            
+            if (branchInfo?.isGitHubRepo == true && branchInfo.owner != null && branchInfo.repo != null) {
+                updateAgentsProjectContext(branchInfo.owner, branchInfo.repo, branchInfo.branch)
+            } else {
+                clearAgentsProjectContext()
+            }
         } catch (e: Exception) {
             println("Ошибка при получении текущей ветки: ${e.message}")
             _currentBranch.value = null
             _githubBranchInfo.value = null
+            clearAgentsProjectContext()
         }
+    }
+    
+    private fun updateAgentsProjectContext(owner: String, repo: String, branch: String) {
+        val context = """
+PROJECT CONTEXT - GITHUB REPOSITORY:
+The current project is connected to a GitHub repository:
+- Repository owner: $owner
+- Repository name: $repo
+- Current branch: $branch
+- Full repository path: $owner/$repo
+
+IMPORTANT: When the user asks questions about the project, repository, code, pull requests, issues, or any GitHub-related information, you MUST use the following repository information:
+- Repository owner: $owner
+- Repository name: $repo
+
+When calling GitHub MCP tools, ALWAYS use these exact values for the "owner" and "repo" parameters. Do NOT ask the user for this information - it is already provided in this context.
+
+You can use GitHub MCP tools to:
+- Search for files, issues, pull requests, or discussions in this repository
+- Read repository files, issues, or pull requests
+- Get information about the repository structure
+- Search for code, commits, or other repository content
+- List open pull requests, issues, etc.
+
+Example: If the user asks "What open PRs does this project have?", you should immediately use GitHub MCP tools with owner="$owner" and repo="$repo" to get the information.
+        """.trimIndent()
+        
+        println("=== Updating agents project context ===")
+        println("Owner: $owner, Repo: $repo, Branch: $branch")
+        println("Coordinator agent exists: ${coordinatorAgent != null}")
+        println("Agent instances count: ${agentInstances.size}")
+        
+        coordinatorAgent?.updateProjectContext(context)
+        agentInstances.values.forEach { it.updateProjectContext(context) }
+        
+        println("Project context updated for all agents")
+    }
+    
+    private fun clearAgentsProjectContext() {
+        coordinatorAgent?.updateProjectContext("")
+        agentInstances.values.forEach { it.updateProjectContext("") }
     }
     
     suspend fun getBranches(): com.qualiorstudio.aiadventultimate.service.BranchList? {
@@ -940,6 +1029,7 @@ ${if (query.isNotBlank()) {
         val project = currentProject.value ?: run {
             _githubBranchInfo.value = null
             _currentBranch.value = null
+            clearAgentsProjectContext()
             return
         }
         viewModelScope.launch {
@@ -947,9 +1037,16 @@ ${if (query.isNotBlank()) {
                 val branchInfo = gitBranchService.getGitHubBranchInfo(project.path, mcpManager)
                 _githubBranchInfo.value = branchInfo
                 _currentBranch.value = branchInfo?.branch
+                
+                if (branchInfo?.isGitHubRepo == true && branchInfo.owner != null && branchInfo.repo != null) {
+                    updateAgentsProjectContext(branchInfo.owner, branchInfo.repo, branchInfo.branch)
+                } else {
+                    clearAgentsProjectContext()
+                }
             } catch (e: Exception) {
                 println("Ошибка при проверке подключения к GitHub: ${e.message}")
                 _githubBranchInfo.value = null
+                clearAgentsProjectContext()
             }
         }
     }
@@ -994,6 +1091,7 @@ ${if (query.isNotBlank()) {
                 projectRepo.closeProject()
                 _currentBranch.value = null
                 _githubBranchInfo.value = null
+                clearAgentsProjectContext()
                 initializeServices()
                 coordinatorAgent?.initialize()
                 agentInstances.values.forEach { it.initialize() }

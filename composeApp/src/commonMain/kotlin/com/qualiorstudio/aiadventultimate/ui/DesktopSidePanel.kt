@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -15,6 +17,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,13 +30,20 @@ import com.qualiorstudio.aiadventultimate.model.Agent
 import com.qualiorstudio.aiadventultimate.repository.AgentConnectionRepository
 import com.qualiorstudio.aiadventultimate.repository.MCPServerRepository
 import com.qualiorstudio.aiadventultimate.service.MCPServerService
+import com.qualiorstudio.aiadventultimate.service.GitHubPRService
+import com.qualiorstudio.aiadventultimate.service.createGitHubPRService
+import com.qualiorstudio.aiadventultimate.service.PullRequest
+import com.qualiorstudio.aiadventultimate.utils.openUrl
 import com.qualiorstudio.aiadventultimate.viewmodel.AgentViewModel
+import com.qualiorstudio.aiadventultimate.viewmodel.SettingsViewModel
+import com.mikepenz.markdown.m3.Markdown
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 
 enum class SidePanelTab {
     AGENTS,
-    MCP_SERVERS
+    MCP_SERVERS,
+    PULL_REQUESTS
 }
 
 @Composable
@@ -44,6 +56,10 @@ fun DesktopSidePanel(
     connectionRepository: AgentConnectionRepository,
     mcpServerRepository: MCPServerRepository,
     mcpServerService: MCPServerService,
+    currentProject: com.qualiorstudio.aiadventultimate.model.Project? = null,
+    githubBranchInfo: com.qualiorstudio.aiadventultimate.service.GitHubBranchInfo? = null,
+    mcpManager: com.qualiorstudio.aiadventultimate.mcp.MCPServerManager? = null,
+    settingsViewModel: SettingsViewModel? = null,
     modifier: Modifier = Modifier
 ) {
     val agents by agentViewModel.agents.collectAsState()
@@ -117,6 +133,14 @@ fun DesktopSidePanel(
                     },
                     contentDescription = "MCP Серверы"
                 )
+                TabIconButton(
+                    icon = Icons.Default.Code,
+                    isSelected = selectedTab == SidePanelTab.PULL_REQUESTS,
+                    onClick = { 
+                        selectedTab = if (selectedTab == SidePanelTab.PULL_REQUESTS) null else SidePanelTab.PULL_REQUESTS
+                    },
+                    contentDescription = "Pull Requests"
+                )
             }
             
             Column(
@@ -150,6 +174,17 @@ fun DesktopSidePanel(
                             repository = mcpServerRepository,
                             mcpService = mcpServerService,
                             onCreateServer = { showCreateMCPServerDialog = true }
+                        )
+                    }
+                    SidePanelTab.PULL_REQUESTS -> {
+                        PullRequestsTabContent(
+                            currentProject = currentProject,
+                            githubBranchInfo = githubBranchInfo,
+                            mcpManager = mcpManager,
+                            settingsViewModel = settingsViewModel,
+                            onReviewRequest = { pr ->
+                                // Review будет обрабатываться внутри компонента
+                            }
                         )
                     }
                     null -> {
@@ -327,4 +362,445 @@ fun AgentsTabContent(
         }
     }
 }
+
+@Composable
+fun PullRequestsTabContent(
+    currentProject: com.qualiorstudio.aiadventultimate.model.Project?,
+    githubBranchInfo: com.qualiorstudio.aiadventultimate.service.GitHubBranchInfo?,
+    mcpManager: com.qualiorstudio.aiadventultimate.mcp.MCPServerManager?,
+    settingsViewModel: SettingsViewModel? = null,
+    onReviewRequest: ((PullRequest) -> Unit)? = null
+) {
+    var pullRequests by remember { mutableStateOf<List<PullRequest>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+    val prService = remember { createGitHubPRService() }
+    
+    fun loadPullRequests() {
+        if (githubBranchInfo?.isGitHubRepo != true || 
+            githubBranchInfo.owner == null || 
+            githubBranchInfo.repo == null ||
+            mcpManager == null) {
+            errorMessage = "Проект не подключен к GitHub репозиторию"
+            return
+        }
+        
+        isLoading = true
+        errorMessage = null
+        coroutineScope.launch {
+            try {
+                val prs = prService.getOpenPullRequests(
+                    owner = githubBranchInfo.owner!!,
+                    repo = githubBranchInfo.repo!!,
+                    mcpManager = mcpManager
+                )
+                pullRequests = prs
+            } catch (e: Exception) {
+                errorMessage = "Ошибка при загрузке PR: ${e.message}"
+                println("Ошибка при загрузке PR: ${e.message}")
+                e.printStackTrace()
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+    
+    LaunchedEffect(currentProject, githubBranchInfo, mcpManager) {
+        if (currentProject != null && 
+            githubBranchInfo?.isGitHubRepo == true && 
+            githubBranchInfo.owner != null && 
+            githubBranchInfo.repo != null &&
+            mcpManager != null) {
+            loadPullRequests()
+        }
+    }
+    
+    Column(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Pull Requests",
+                style = MaterialTheme.typography.titleLarge
+            )
+            IconButton(
+                onClick = { loadPullRequests() },
+                enabled = !isLoading && 
+                    githubBranchInfo?.isGitHubRepo == true && 
+                    githubBranchInfo.owner != null && 
+                    githubBranchInfo.repo != null &&
+                    mcpManager != null
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Обновить список PR",
+                    tint = if (isLoading) 
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    else
+                        MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+        
+        if (isLoading) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else if (errorMessage != null) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = errorMessage ?: "Ошибка",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Button(onClick = { loadPullRequests() }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Повторить")
+                    }
+                }
+            }
+        } else if (githubBranchInfo?.isGitHubRepo != true || 
+                   githubBranchInfo.owner == null || 
+                   githubBranchInfo.repo == null ||
+                   mcpManager == null) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = "Проект не подключен к GitHub",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Откройте проект, подключенный к GitHub репозиторию",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else if (pullRequests.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = "Нет открытых Pull Requests",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Репозиторий: ${githubBranchInfo.owner}/${githubBranchInfo.repo}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(pullRequests) { pr ->
+                    PullRequestListItem(
+                        pr = pr,
+                        githubBranchInfo = githubBranchInfo,
+                        mcpManager = mcpManager,
+                        settingsViewModel = settingsViewModel
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PullRequestListItem(
+    pr: PullRequest,
+    githubBranchInfo: com.qualiorstudio.aiadventultimate.service.GitHubBranchInfo?,
+    mcpManager: com.qualiorstudio.aiadventultimate.mcp.MCPServerManager?,
+    settingsViewModel: SettingsViewModel? = null
+) {
+    var showReviewDialog by remember { mutableStateOf(false) }
+    var reviewResult by remember { mutableStateOf<String?>(null) }
+    var isReviewing by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    val prService = remember { createGitHubPRService() }
+    
+    fun startReview() {
+        if (githubBranchInfo?.owner == null || githubBranchInfo.repo == null || mcpManager == null) {
+            return
+        }
+        
+        isReviewing = true
+        reviewResult = null
+        showReviewDialog = true
+        
+        coroutineScope.launch {
+            try {
+                val diff = prService.getPullRequestDiff(
+                    owner = githubBranchInfo.owner!!,
+                    repo = githubBranchInfo.repo!!,
+                    prNumber = pr.number,
+                    mcpManager = mcpManager
+                )
+                
+                if (diff == null || diff.isBlank()) {
+                    reviewResult = "Не удалось получить diff для этого PR"
+                    isReviewing = false
+                    return@launch
+                }
+                
+                val reviewPrompt = """
+Проведи code review для следующего Pull Request:
+
+Название PR: ${pr.title}
+Автор: ${pr.author ?: "Неизвестно"}
+Описание: ${pr.body ?: "Нет описания"}
+
+Diff изменений:
+```diff
+$diff
+```
+
+Проанализируй код и предоставь:
+1. Общую оценку изменений
+2. Найденные баги или потенциальные проблемы
+3. Предложения по улучшению кода
+4. Рекомендации по стилю и best practices
+5. Комментарии по безопасности (если применимо)
+
+Будь конструктивным и конкретным в своих замечаниях.
+                """.trimIndent()
+                
+                val apiKey = settingsViewModel?.settings?.value?.deepSeekApiKey ?: ""
+                
+                if (apiKey.isBlank()) {
+                    reviewResult = "Ошибка: API ключ DeepSeek не настроен. Пожалуйста, настройте его в настройках приложения."
+                    isReviewing = false
+                    return@launch
+                }
+                
+                val deepSeek = com.qualiorstudio.aiadventultimate.api.DeepSeek(apiKey = apiKey)
+                
+                val messages = listOf(
+                    com.qualiorstudio.aiadventultimate.api.DeepSeekMessage(
+                        role = "system",
+                        content = "Ты опытный code reviewer. Проводишь тщательный анализ кода, находишь баги, предлагаешь улучшения и следуешь best practices."
+                    ),
+                    com.qualiorstudio.aiadventultimate.api.DeepSeekMessage(
+                        role = "user",
+                        content = reviewPrompt
+                    )
+                )
+                
+                val response = deepSeek.sendMessage(messages, null, temperature = 0.3, maxTokens = 4000)
+                reviewResult = response.choices.firstOrNull()?.message?.content ?: "Не удалось получить ответ от AI"
+            } catch (e: Exception) {
+                reviewResult = "Ошибка при анализе PR: ${e.message}"
+                println("Ошибка при review PR: ${e.message}")
+                e.printStackTrace()
+            } finally {
+                isReviewing = false
+            }
+        }
+    }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                pr.url?.let { url ->
+                    openUrl(url)
+                }
+            },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "#${pr.number}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                if (pr.author != null) {
+                    Text(
+                        text = "@${pr.author}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            
+            Text(
+                text = pr.title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            
+            if (pr.body != null && pr.body.isNotBlank()) {
+                Text(
+                    text = pr.body.take(150) + if (pr.body.length > 150) "..." else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (pr.headBranch != null && pr.baseBranch != null) {
+                    Text(
+                        text = "${pr.headBranch} → ${pr.baseBranch}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (pr.updatedAt != null) {
+                    Text(
+                        text = "Обновлено: ${formatDateString(pr.updatedAt)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Button(
+                    onClick = { startReview() },
+                    enabled = !isReviewing && githubBranchInfo?.owner != null && githubBranchInfo.repo != null && mcpManager != null
+                ) {
+                    if (isReviewing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Анализ...")
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Visibility,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Review")
+                    }
+                }
+            }
+        }
+    }
+    
+    if (showReviewDialog) {
+        AlertDialog(
+            onDismissRequest = { 
+                showReviewDialog = false
+                if (!isReviewing) {
+                    reviewResult = null
+                }
+            },
+            title = {
+                Text("Code Review: PR #${pr.number}")
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (isReviewing) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                CircularProgressIndicator()
+                                Text("Анализ кода...")
+                            }
+                        }
+                    } else if (reviewResult != null) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 500.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            Markdown(
+                                content = reviewResult!!,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    } else {
+                        Text("Нажмите кнопку Review для начала анализа")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { 
+                    showReviewDialog = false
+                    reviewResult = null
+                }) {
+                    Text("Закрыть")
+                }
+            }
+        )
+    }
+}
+
+expect fun formatDateString(dateString: String): String
 

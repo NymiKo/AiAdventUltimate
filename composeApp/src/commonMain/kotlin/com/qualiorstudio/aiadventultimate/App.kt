@@ -529,7 +529,11 @@ fun ChatScreen(
                         },
                         connectionRepository = connectionRepository,
                         mcpServerRepository = mcpServerRepository,
-                        mcpServerService = mcpServerService
+                        mcpServerService = mcpServerService,
+                        currentProject = currentProject,
+                        githubBranchInfo = githubBranchInfo,
+                        mcpManager = mcpManager,
+                        settingsViewModel = settingsViewModel
                     )
                 }
             }

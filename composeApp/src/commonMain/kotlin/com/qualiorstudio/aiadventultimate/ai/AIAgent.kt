@@ -16,12 +16,13 @@ class AIAgent(
     private val deepSeek: DeepSeek,
     private val ragService: RAGService? = null,
     private val maxIterations: Int = 10,
-    private val customSystemPrompt: String? = null,
+    private var customSystemPrompt: String? = null,
     private val mcpServerManager: com.qualiorstudio.aiadventultimate.mcp.MCPServerManager? = null,
     private val projectTools: ProjectTools? = null
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private var tools: List<DeepSeekTool> = emptyList()
+    private var projectContext: String = ""
     
     private val defaultSystemPrompt = """
 You are a helpful AI assistant.
@@ -62,7 +63,18 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
     """.trimIndent()
     
     private val systemPrompt: String
-        get() = customSystemPrompt ?: defaultSystemPrompt
+        get() {
+            val basePrompt = customSystemPrompt ?: defaultSystemPrompt
+            return if (projectContext.isNotEmpty()) {
+                "$basePrompt\n\n$projectContext"
+            } else {
+                basePrompt
+            }
+        }
+    
+    fun updateProjectContext(context: String) {
+        projectContext = context
+    }
 
     suspend fun initialize() {
         val mcpTools = mcpServerManager?.getAvailableTools() ?: emptyList()
@@ -155,8 +167,16 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
         temperature: Double = 0.7,
         maxTokens: Int = 8000
     ): CompletionOutput {
+        val finalSystemPrompt = systemPrompt
+        println("=== AIAgent System Prompt ===")
+        println("System prompt length: ${finalSystemPrompt.length}")
+        println("Has project context: ${projectContext.isNotEmpty()}")
+        if (projectContext.isNotEmpty()) {
+            println("Project context: ${projectContext.take(200)}...")
+        }
+        
         val messages = mutableListOf(
-            DeepSeekMessage(role = "system", content = systemPrompt)
+            DeepSeekMessage(role = "system", content = finalSystemPrompt)
         )
         messages.addAll(conversationHistory)
         val userMsg = DeepSeekMessage(role = "user", content = userContent)
