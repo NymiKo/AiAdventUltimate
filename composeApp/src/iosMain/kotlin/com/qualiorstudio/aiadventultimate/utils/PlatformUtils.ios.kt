@@ -11,3 +11,7 @@ actual fun generateUUID(): String {
     return Uuid.random().toString()
 }
 
+actual fun isDesktop(): Boolean {
+    return false
+}
+

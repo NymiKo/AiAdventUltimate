@@ -10,31 +10,45 @@ import com.qualiorstudio.aiadventultimate.model.Agent
 import com.qualiorstudio.aiadventultimate.model.AgentConnection
 import com.qualiorstudio.aiadventultimate.model.Chat
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
+import com.qualiorstudio.aiadventultimate.model.Commands
 import com.qualiorstudio.aiadventultimate.repository.AgentConnectionRepository
 import com.qualiorstudio.aiadventultimate.repository.AgentConnectionRepositoryImpl
 import com.qualiorstudio.aiadventultimate.repository.ChatRepository
 import com.qualiorstudio.aiadventultimate.repository.ChatRepositoryImpl
+import com.qualiorstudio.aiadventultimate.repository.MCPServerRepository
+import com.qualiorstudio.aiadventultimate.repository.MCPServerRepositoryImpl
+import com.qualiorstudio.aiadventultimate.repository.DEFAULT_GITHUB_MCP_SERVER_ID
+import com.qualiorstudio.aiadventultimate.mcp.createMCPServerManager
 import com.qualiorstudio.aiadventultimate.utils.currentTimeMillis
 import com.qualiorstudio.aiadventultimate.voice.createVoiceOutputService
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 
 class ChatViewModel(
     private val settingsViewModel: SettingsViewModel? = null,
     private val chatRepository: ChatRepository? = null,
-    private val connectionRepository: AgentConnectionRepository? = null
+    private val connectionRepository: AgentConnectionRepository? = null,
+    private val mcpServerRepository: MCPServerRepository? = null,
+    private val projectRepository: com.qualiorstudio.aiadventultimate.repository.ProjectRepository? = null,
+    private val embeddingViewModel: EmbeddingViewModel? = null
 ) : ViewModel() {
     private val repository = chatRepository ?: ChatRepositoryImpl()
     private val connectionRepo = connectionRepository ?: AgentConnectionRepositoryImpl()
+    private val projectRepo = projectRepository ?: com.qualiorstudio.aiadventultimate.repository.ProjectRepositoryImpl()
     private val voiceOutputService = createVoiceOutputService()
+    private val mcpManager = createMCPServerManager()
     
     private var deepSeek: DeepSeek? = null
     private var ragService: RAGService? = null
     private val agentInstances = mutableMapOf<String, AIAgent>()
     private var coordinatorAgent: AIAgent? = null
+    private var mcpInitialized = false
     private var lastApiKey: String? = null
     private var lastLmStudioUrl: String? = null
     private var lastTopK: Int? = null
@@ -47,6 +61,50 @@ class ChatViewModel(
     
     private val _useCoordinator = MutableStateFlow(true)
     val useCoordinator: StateFlow<Boolean> = _useCoordinator.asStateFlow()
+    
+    val currentProject: StateFlow<com.qualiorstudio.aiadventultimate.model.Project?> = projectRepo.currentProject
+    
+    private val _currentBranch = MutableStateFlow<String?>(null)
+    val currentBranch: StateFlow<String?> = _currentBranch.asStateFlow()
+    
+    private val _githubBranchInfo = MutableStateFlow<com.qualiorstudio.aiadventultimate.service.GitHubBranchInfo?>(null)
+    val githubBranchInfo: StateFlow<com.qualiorstudio.aiadventultimate.service.GitHubBranchInfo?> = _githubBranchInfo.asStateFlow()
+    
+    private val gitBranchService = com.qualiorstudio.aiadventultimate.service.createGitBranchService()
+    private var lastHeadModified: Long? = null
+    private var branchCheckJob: Job? = null
+    
+    init {
+        viewModelScope.launch {
+            currentProject.collect { project ->
+                branchCheckJob?.cancel()
+                if (project != null) {
+                    updateCurrentBranch(project.path)
+                    startBranchMonitoring(project.path)
+                } else {
+                    _currentBranch.value = null
+                    lastHeadModified = null
+                }
+            }
+        }
+    }
+    
+    private fun startBranchMonitoring(projectPath: String) {
+        branchCheckJob = viewModelScope.launch {
+            while (isActive) {
+                try {
+                    val currentModified = gitBranchService.getHeadFileLastModified(projectPath)
+                    if (currentModified != null && currentModified != lastHeadModified) {
+                        lastHeadModified = currentModified
+                        updateCurrentBranch(projectPath)
+                    }
+                } catch (e: Exception) {
+                    println("Ошибка при проверке изменений ветки: ${e.message}")
+                }
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+    }
     
     private val coordinatorSystemPrompt = """
 Ты агент-координатор в мультиагентной системе. Твоя задача - анализировать запросы пользователя и выбирать наиболее подходящего специализированного агента из доступных для ответа.
@@ -110,21 +168,84 @@ AGENT_ID: <id_агента>
                 rerankMinScore = settings.rerankMinScore,
                 rerankedRetentionRatio = settings.rerankedRetentionRatio
             )
+            
+            // Инициализируем MCP серверы
+            val mcpRepo = mcpServerRepository ?: MCPServerRepositoryImpl()
+            viewModelScope.launch {
+                try {
+                    mcpManager.initializeServers(mcpRepo)
+                    mcpInitialized = true
+                    val tools = mcpManager.getAvailableTools()
+                    println("✓ MCP серверы инициализированы. Доступно инструментов: ${tools.size}")
+                    tools.forEach { tool ->
+                        println("  - ${tool.function.name}: ${tool.function.description}")
+                    }
+                    // Переинициализируем всех агентов после загрузки MCP инструментов
+                    coordinatorAgent?.initialize()
+                    agentInstances.values.forEach { it.initialize() }
+                } catch (e: Exception) {
+                    println("Ошибка инициализации MCP серверов: ${e.message}")
+                    e.printStackTrace()
+                    mcpInitialized = true
+                }
+            }
+        }
+        
+        // Создаем ProjectTools если есть открытый проект
+        val projectTools = currentProject.value?.let { 
+            com.qualiorstudio.aiadventultimate.ai.ProjectTools(it)
         }
         
         // Создаем экземпляр координатора, если есть выбранные агенты и координатор включен
         val selectedAgents = _selectedAgents.value
         val useCoordinator = _useCoordinator.value
+        val currentProjectContext = if (_githubBranchInfo.value?.isGitHubRepo == true && 
+            _githubBranchInfo.value?.owner != null && 
+            _githubBranchInfo.value?.repo != null) {
+            val branchInfo = _githubBranchInfo.value!!
+            """
+PROJECT CONTEXT - GITHUB REPOSITORY:
+The current project is connected to a GitHub repository:
+- Repository owner: ${branchInfo.owner}
+- Repository name: ${branchInfo.repo}
+- Current branch: ${branchInfo.branch}
+- Full repository path: ${branchInfo.owner}/${branchInfo.repo}
+
+IMPORTANT: When the user asks questions about the project, repository, code, pull requests, issues, or any GitHub-related information, you MUST use the following repository information:
+- Repository owner: ${branchInfo.owner}
+- Repository name: ${branchInfo.repo}
+
+When calling GitHub MCP tools, ALWAYS use these exact values for the "owner" and "repo" parameters. Do NOT ask the user for this information - it is already provided in this context.
+
+You can use GitHub MCP tools to:
+- Search for files, issues, pull requests, or discussions in this repository
+- Read repository files, issues, or pull requests
+- Get information about the repository structure
+- Search for code, commits, or other repository content
+- List open pull requests, issues, etc.
+
+Example: If the user asks "What open PRs does this project have?", you should immediately use GitHub MCP tools with owner="${branchInfo.owner}" and repo="${branchInfo.repo}" to get the information.
+            """.trimIndent()
+        } else {
+            ""
+        }
+        
         if (selectedAgents.isNotEmpty() && useCoordinator && coordinatorAgent == null) {
-            coordinatorAgent = AIAgent(
+            val newCoordinator = AIAgent(
                 deepSeek = deepSeek!!,
                 ragService = null,
                 maxIterations = settings.maxIterations,
-                customSystemPrompt = coordinatorSystemPrompt
+                customSystemPrompt = coordinatorSystemPrompt,
+                mcpServerManager = mcpManager,
+                projectTools = projectTools
             )
+            newCoordinator.updateProjectContext(currentProjectContext)
+            coordinatorAgent = newCoordinator
         } else if (selectedAgents.isEmpty() || !useCoordinator) {
             coordinatorAgent?.close()
             coordinatorAgent = null
+        } else if (coordinatorAgent != null) {
+            coordinatorAgent?.updateProjectContext(currentProjectContext)
         }
         
         // Создаем экземпляры AIAgent для каждого выбранного агента
@@ -141,12 +262,16 @@ AGENT_ID: <id_агента>
         // Создаем экземпляры для новых агентов
         selectedAgents.forEach { agent ->
             if (!agentInstances.containsKey(agent.id)) {
-                agentInstances[agent.id] = AIAgent(
+                val newAgent = AIAgent(
                     deepSeek = deepSeek!!,
                     ragService = ragService,
                     maxIterations = settings.maxIterations,
-                    customSystemPrompt = agent.systemPrompt
+                    customSystemPrompt = agent.systemPrompt,
+                    mcpServerManager = mcpManager,
+                    projectTools = projectTools
                 )
+                newAgent.updateProjectContext(currentProjectContext)
+                agentInstances[agent.id] = newAgent
             }
         }
     }
@@ -276,6 +401,8 @@ AGENT_ID: <id_агента>
         initializeServices()
         viewModelScope.launch {
             try {
+                // Ждем инициализации MCP серверов перед инициализацией агентов
+                delay(2000)
                 coordinatorAgent?.initialize()
                 agentInstances.values.forEach { it.initialize() }
             } catch (e: Exception) {
@@ -324,6 +451,11 @@ AGENT_ID: <id_агента>
     fun sendMessage(text: String) {
         if (text.isBlank() || _isLoading.value) return
         
+        if (text.startsWith("/")) {
+            handleCommand(text)
+            return
+        }
+        
         val userMessage = ChatMessage(text = text, isUser = true)
         _messages.value = _messages.value + userMessage
         conversationHistory.add(DeepSeekMessage(role = "user", content = text))
@@ -334,10 +466,15 @@ AGENT_ID: <id_агента>
             viewModelScope.launch {
                 try {
                     val settings = getSettings()
+                    val projectTools = currentProject.value?.let { 
+                        com.qualiorstudio.aiadventultimate.ai.ProjectTools(it)
+                    }
                     val defaultAgent = AIAgent(
                         deepSeek = deepSeek ?: DeepSeek(apiKey = settings.deepSeekApiKey),
                         ragService = ragService,
-                        maxIterations = settings.maxIterations
+                        maxIterations = settings.maxIterations,
+                        mcpServerManager = mcpManager,
+                        projectTools = projectTools
                     )
                     defaultAgent.initialize()
                     val result = defaultAgent.processMessage(
@@ -609,6 +746,360 @@ $messageText
     
     fun toggleCoordinator() {
         _useCoordinator.value = !_useCoordinator.value
+    }
+    
+    private fun handleCommand(commandText: String) {
+        val parts = commandText.substring(1).trim().split(" ", limit = 2)
+        val commandName = parts[0].lowercase()
+        val commandArgs = parts.getOrNull(1) ?: ""
+        
+        when (commandName) {
+            "help" -> handleHelpCommand(commandArgs)
+            else -> {
+                val errorMessage = ChatMessage(
+                    text = "Неизвестная команда: /$commandName. Доступные команды: /help",
+                    isUser = false
+                )
+                _messages.value = _messages.value + errorMessage
+            }
+        }
+    }
+    
+    private fun handleHelpCommand(query: String) {
+        val userMessage = ChatMessage(text = "/help${if (query.isNotBlank()) " $query" else ""}", isUser = true)
+        _messages.value = _messages.value + userMessage
+        
+        _isLoading.value = true
+        viewModelScope.launch {
+            try {
+                val settings = getSettings()
+                val projectTools = currentProject.value?.let { 
+                    com.qualiorstudio.aiadventultimate.ai.ProjectTools(it)
+                }
+                
+                val helpSystemPrompt = """
+Ты помощник по проекту AI Advent Ultimate. Твоя задача - помогать пользователям разобраться в проекте и отвечать на их вопросы.
+
+ИНФОРМАЦИЯ О ПРОЕКТЕ:
+
+AI Advent Ultimate — это кросс-платформенное приложение AI чат-бота с поддержкой:
+- Мультиагентной системы — создание и управление специализированными AI агентами
+- RAG (Retrieval-Augmented Generation) — поиск релевантной информации из базы знаний
+- Голосового ввода и вывода — распознавание речи и синтез голоса (Desktop)
+- Кросс-платформенности — Android, iOS, Desktop (JVM)
+
+ОСНОВНЫЕ ВОЗМОЖНОСТИ:
+
+1. Текстовый чат с AI
+   - Поддержка нескольких AI провайдеров (DeepSeek, Yandex GPT)
+   - Настройка параметров генерации (temperature, maxTokens)
+   - История сообщений с сохранением в локальное хранилище
+
+2. Мультиагентная система
+   - Создание специализированных AI агентов с кастомными промптами
+   - Агент-координатор для автоматического выбора подходящего агента
+   - Связи между агентами (REVIEW, VALIDATE, ENHANCE, COLLABORATE)
+   - Параллельная работа нескольких агентов
+
+3. RAG (Retrieval-Augmented Generation)
+   - Индексация документов (HTML, PDF) в векторное хранилище
+   - Поиск релевантных фрагментов по семантическому сходству
+   - Reranking для улучшения качества результатов
+   - Интеграция с LM Studio для генерации эмбеддингов
+
+4. Голосовой ввод (Desktop)
+   - Распознавание речи через Yandex SpeechKit STT
+   - Поддержка русского языка
+   - Запись аудио с микрофона
+
+5. Голосовой вывод (Desktop)
+   - Синтез речи голосом Джарвиса через Yandex SpeechKit TTS
+   - Автоматическое озвучивание ответов AI
+   - Генерация кратких фраз для озвучивания
+
+ТЕХНОЛОГИЧЕСКИЙ СТЕК:
+- Kotlin Multiplatform — кроссплатформенная разработка
+- Compose Multiplatform — декларативный UI фреймворк
+- Ktor — HTTP клиент и сервер
+- Kotlinx Serialization — сериализация данных
+- Coroutines — асинхронное программирование
+- StateFlow — реактивное управление состоянием
+
+ВНЕШНИЕ СЕРВИСЫ:
+- DeepSeek API — основной AI провайдер
+- Yandex SpeechKit — распознавание и синтез речи
+- Yandex GPT — альтернативный AI провайдер
+- LM Studio — локальный сервер для эмбеддингов
+
+ИСПОЛЬЗОВАНИЕ:
+
+Работа с агентами:
+1. Нажмите на иконку "Агенты" в верхней панели
+2. Создайте нового агента с кастомным промптом
+3. Выберите агентов для работы
+4. Включите/выключите координатор
+
+Использование RAG:
+1. Перейдите в раздел "Эмбеддинги"
+2. Загрузите документы (HTML, PDF)
+3. Дождитесь индексации
+4. Используйте RAG в чате (включите в настройках)
+
+Голосовой ввод (Desktop):
+1. Убедитесь, что микрофон подключен
+2. Нажмите на иконку микрофона
+3. Говорите в микрофон
+4. Нажмите красную кнопку для остановки
+5. Текст автоматически появится в поле ввода
+
+НАСТРОЙКИ:
+- Темная тема — переключение темы интерфейса
+- RAG — включение/выключение поиска по базе знаний
+- Голосовой ввод — включение/выключение распознавания речи
+- Голосовой вывод — включение/выключение синтеза речи
+- API ключи — настройка ключей для внешних сервисов
+- Параметры модели — temperature, maxTokens
+- Параметры RAG — topK, rerankMinScore, rerankedRetentionRatio
+
+${if (query.isNotBlank()) {
+    """
+    
+ПОЛЬЗОВАТЕЛЬ ЗАДАЛ ВОПРОС: $query
+
+Ответь на вопрос пользователя, используя информацию о проекте выше. Будь полезным и конкретным.
+    """.trimIndent()
+} else {
+    """
+    
+Пользователь запросил помощь. Предоставь краткое описание проекта и основных возможностей. Если пользователь задаст конкретный вопрос, ответь на него подробно.
+    """.trimIndent()
+}}
+                """.trimIndent()
+                
+                val defaultAgent = AIAgent(
+                    deepSeek = deepSeek ?: DeepSeek(apiKey = settings.deepSeekApiKey),
+                    ragService = null,
+                    maxIterations = 5,
+                    customSystemPrompt = helpSystemPrompt,
+                    mcpServerManager = null,
+                    projectTools = null
+                )
+                defaultAgent.initialize()
+                
+                val userQuery = if (query.isNotBlank()) {
+                    query
+                } else {
+                    "Расскажи о проекте AI Advent Ultimate и его основных возможностях"
+                }
+                
+                val result = defaultAgent.processMessage(
+                    userMessage = userQuery,
+                    conversationHistory = emptyList(),
+                    useRAG = false,
+                    temperature = settings.temperature,
+                    maxTokens = settings.maxTokens
+                )
+                
+                val aiMessage = ChatMessage(
+                    text = result.response,
+                    isUser = false
+                )
+                _messages.value = _messages.value + aiMessage
+                
+                saveChat()
+                
+                if (_enableVoiceOutput.value && voiceOutputService.isSupported() && result.shortPhrase.isNotBlank()) {
+                    launch {
+                        voiceOutputService.speak(result.shortPhrase).onFailure { error ->
+                            println("Voice output error: ${error.message}")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                val errorMessage = ChatMessage(
+                    text = "Ошибка при обработке команды /help: ${e.message}",
+                    isUser = false
+                )
+                _messages.value = _messages.value + errorMessage
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+    
+    fun openProject(path: String) {
+        viewModelScope.launch {
+            try {
+                projectRepo.openProject(path)
+                
+                currentProject.value?.let { project ->
+                    val mcpRepo = mcpServerRepository ?: MCPServerRepositoryImpl()
+                    val servers = mcpRepo.getAllServers()
+                    val hasGitHubServer = servers.any { 
+                        it.id == DEFAULT_GITHUB_MCP_SERVER_ID && it.enabled 
+                    }
+                    
+                    if (hasGitHubServer) {
+                        updateCurrentBranch(project.path)
+                    }
+                    
+                    initializeServices()
+                    coordinatorAgent?.initialize()
+                    agentInstances.values.forEach { it.initialize() }
+                    
+                    indexProjectMarkdownFiles(project)
+                    
+                    if (hasGitHubServer) {
+                        checkGitHubConnection()
+                    }
+                }
+            } catch (e: Exception) {
+                println("Error opening project: ${e.message}")
+                e.printStackTrace()
+            }
+        }
+    }
+    
+    private suspend fun updateCurrentBranch(projectPath: String) {
+        try {
+            val branchInfo = gitBranchService.getGitHubBranchInfo(projectPath, mcpManager)
+            _currentBranch.value = branchInfo?.branch
+            _githubBranchInfo.value = branchInfo
+            
+            if (branchInfo?.isGitHubRepo == true && branchInfo.owner != null && branchInfo.repo != null) {
+                updateAgentsProjectContext(branchInfo.owner, branchInfo.repo, branchInfo.branch)
+            } else {
+                clearAgentsProjectContext()
+            }
+        } catch (e: Exception) {
+            println("Ошибка при получении текущей ветки: ${e.message}")
+            _currentBranch.value = null
+            _githubBranchInfo.value = null
+            clearAgentsProjectContext()
+        }
+    }
+    
+    private fun updateAgentsProjectContext(owner: String, repo: String, branch: String) {
+        val context = """
+PROJECT CONTEXT - GITHUB REPOSITORY:
+The current project is connected to a GitHub repository:
+- Repository owner: $owner
+- Repository name: $repo
+- Current branch: $branch
+- Full repository path: $owner/$repo
+
+IMPORTANT: When the user asks questions about the project, repository, code, pull requests, issues, or any GitHub-related information, you MUST use the following repository information:
+- Repository owner: $owner
+- Repository name: $repo
+
+When calling GitHub MCP tools, ALWAYS use these exact values for the "owner" and "repo" parameters. Do NOT ask the user for this information - it is already provided in this context.
+
+You can use GitHub MCP tools to:
+- Search for files, issues, pull requests, or discussions in this repository
+- Read repository files, issues, or pull requests
+- Get information about the repository structure
+- Search for code, commits, or other repository content
+- List open pull requests, issues, etc.
+
+Example: If the user asks "What open PRs does this project have?", you should immediately use GitHub MCP tools with owner="$owner" and repo="$repo" to get the information.
+        """.trimIndent()
+        
+        println("=== Updating agents project context ===")
+        println("Owner: $owner, Repo: $repo, Branch: $branch")
+        println("Coordinator agent exists: ${coordinatorAgent != null}")
+        println("Agent instances count: ${agentInstances.size}")
+        
+        coordinatorAgent?.updateProjectContext(context)
+        agentInstances.values.forEach { it.updateProjectContext(context) }
+        
+        println("Project context updated for all agents")
+    }
+    
+    private fun clearAgentsProjectContext() {
+        coordinatorAgent?.updateProjectContext("")
+        agentInstances.values.forEach { it.updateProjectContext("") }
+    }
+    
+    suspend fun getBranches(): com.qualiorstudio.aiadventultimate.service.BranchList? {
+        val project = currentProject.value ?: return null
+        return gitBranchService.getBranches(project.path, mcpManager)
+    }
+    
+    suspend fun checkGitHubConnection() {
+        val project = currentProject.value ?: run {
+            _githubBranchInfo.value = null
+            _currentBranch.value = null
+            clearAgentsProjectContext()
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val branchInfo = gitBranchService.getGitHubBranchInfo(project.path, mcpManager)
+                _githubBranchInfo.value = branchInfo
+                _currentBranch.value = branchInfo?.branch
+                
+                if (branchInfo?.isGitHubRepo == true && branchInfo.owner != null && branchInfo.repo != null) {
+                    updateAgentsProjectContext(branchInfo.owner, branchInfo.repo, branchInfo.branch)
+                } else {
+                    clearAgentsProjectContext()
+                }
+            } catch (e: Exception) {
+                println("Ошибка при проверке подключения к GitHub: ${e.message}")
+                _githubBranchInfo.value = null
+                clearAgentsProjectContext()
+            }
+        }
+    }
+    
+    fun clearGitHubInfo() {
+        _githubBranchInfo.value = null
+    }
+    
+    private fun indexProjectMarkdownFiles(project: com.qualiorstudio.aiadventultimate.model.Project) {
+        viewModelScope.launch {
+            try {
+                println("🔍 Поиск файлов в проекте...")
+                val projectFiles = com.qualiorstudio.aiadventultimate.utils.ProjectScanner.findProjectFiles(project)
+                
+                if (projectFiles.isEmpty()) {
+                    println("📭 Файлы не найдены")
+                    return@launch
+                }
+                
+                println("📚 Найдено ${projectFiles.size} файлов. Начинаю индексацию...")
+                
+                embeddingViewModel?.let { vm ->
+                    val result = vm.processHtmlFiles(projectFiles)
+                    result.onSuccess { chunksCount ->
+                        println("✅ Успешно проиндексировано ${projectFiles.size} файлов ($chunksCount чанков)")
+                    }.onFailure { error ->
+                        println("❌ Ошибка индексации: ${error.message}")
+                    }
+                } ?: run {
+                    println("⚠️ EmbeddingViewModel не доступна для индексации")
+                }
+            } catch (e: Exception) {
+                println("❌ Ошибка при индексации файлов проекта: ${e.message}")
+                e.printStackTrace()
+            }
+        }
+    }
+    
+    fun closeProject() {
+        viewModelScope.launch {
+            try {
+                projectRepo.closeProject()
+                _currentBranch.value = null
+                _githubBranchInfo.value = null
+                clearAgentsProjectContext()
+                initializeServices()
+                coordinatorAgent?.initialize()
+                agentInstances.values.forEach { it.initialize() }
+            } catch (e: Exception) {
+                println("Error closing project: ${e.message}")
+                e.printStackTrace()
+            }
+        }
     }
     
     override fun onCleared() {

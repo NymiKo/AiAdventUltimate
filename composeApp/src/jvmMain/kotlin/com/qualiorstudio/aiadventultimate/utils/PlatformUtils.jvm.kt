@@ -10,3 +10,7 @@ actual fun generateUUID(): String {
     return UUID.randomUUID().toString()
 }
 
+actual fun isDesktop(): Boolean {
+    return true
+}
+
