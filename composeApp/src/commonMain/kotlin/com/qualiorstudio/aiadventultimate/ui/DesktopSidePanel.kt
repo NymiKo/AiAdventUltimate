@@ -5,6 +5,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -554,8 +555,6 @@ fun PullRequestListItem(
     mcpManager: com.qualiorstudio.aiadventultimate.mcp.MCPServerManager?,
     settingsViewModel: SettingsViewModel? = null
 ) {
-    var showReviewDialog by remember { mutableStateOf(false) }
-    var reviewResult by remember { mutableStateOf<String?>(null) }
     var isReviewing by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val prService = remember { createGitHubPRService() }
@@ -566,8 +565,6 @@ fun PullRequestListItem(
         }
         
         isReviewing = true
-        reviewResult = null
-        showReviewDialog = true
         
         coroutineScope.launch {
             try {
@@ -575,11 +572,14 @@ fun PullRequestListItem(
                     owner = githubBranchInfo.owner!!,
                     repo = githubBranchInfo.repo!!,
                     prNumber = pr.number,
+                    title = pr.title,
+                    headBranch = pr.headBranch,
+                    baseBranch = pr.baseBranch,
                     mcpManager = mcpManager
                 )
                 
                 if (diff == null || diff.isBlank()) {
-                    reviewResult = "Не удалось получить diff для этого PR"
+                    println("Не удалось получить diff для PR #${pr.number}")
                     isReviewing = false
                     return@launch
                 }
@@ -609,7 +609,7 @@ $diff
                 val apiKey = settingsViewModel?.settings?.value?.deepSeekApiKey ?: ""
                 
                 if (apiKey.isBlank()) {
-                    reviewResult = "Ошибка: API ключ DeepSeek не настроен. Пожалуйста, настройте его в настройках приложения."
+                    println("Ошибка: API ключ DeepSeek не настроен")
                     isReviewing = false
                     return@launch
                 }
@@ -628,9 +628,24 @@ $diff
                 )
                 
                 val response = deepSeek.sendMessage(messages, null, temperature = 0.3, maxTokens = 4000)
-                reviewResult = response.choices.firstOrNull()?.message?.content ?: "Не удалось получить ответ от AI"
+                val reviewText = response.choices.firstOrNull()?.message?.content ?: "Не удалось получить ответ от AI"
+                
+                println("Review сгенерирован, длина: ${reviewText.length}")
+                
+                val commentAdded = prService.addReviewComment(
+                    owner = githubBranchInfo.owner!!,
+                    repo = githubBranchInfo.repo!!,
+                    pullNumber = pr.number,
+                    comment = reviewText,
+                    mcpManager = mcpManager
+                )
+                
+                if (commentAdded) {
+                    println("Review успешно добавлен как комментарий в PR #${pr.number}")
+                } else {
+                    println("Не удалось добавить review как комментарий в PR #${pr.number}")
+                }
             } catch (e: Exception) {
-                reviewResult = "Ошибка при анализе PR: ${e.message}"
                 println("Ошибка при review PR: ${e.message}")
                 e.printStackTrace()
             } finally {
@@ -742,63 +757,6 @@ $diff
                 }
             }
         }
-    }
-    
-    if (showReviewDialog) {
-        AlertDialog(
-            onDismissRequest = { 
-                showReviewDialog = false
-                if (!isReviewing) {
-                    reviewResult = null
-                }
-            },
-            title = {
-                Text("Code Review: PR #${pr.number}")
-            },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (isReviewing) {
-                        Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                CircularProgressIndicator()
-                                Text("Анализ кода...")
-                            }
-                        }
-                    } else if (reviewResult != null) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 500.dp)
-                                .verticalScroll(rememberScrollState())
-                        ) {
-                            Markdown(
-                                content = reviewResult!!,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    } else {
-                        Text("Нажмите кнопку Review для начала анализа")
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { 
-                    showReviewDialog = false
-                    reviewResult = null
-                }) {
-                    Text("Закрыть")
-                }
-            }
-        )
     }
 }
 
