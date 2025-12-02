@@ -200,7 +200,7 @@ fun ChatScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = "AiAdvent Ultimate",
+                                text = currentProject?.name ?: "AiAdvent Ultimate",
                                 style = MaterialTheme.typography.titleMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis

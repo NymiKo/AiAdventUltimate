@@ -8,6 +8,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,11 +34,20 @@ fun ChatListScreen(
     val chats by chatRepository.observeAllChats().collectAsState(initial = emptyList())
     val coroutineScope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(true) }
+    var isSelectionMode by remember { mutableStateOf(false) }
+    var selectedChatIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
     
     LaunchedEffect(Unit) {
         coroutineScope.launch {
             chatRepository.reloadChats()
             isLoading = false
+        }
+    }
+    
+    LaunchedEffect(isSelectionMode) {
+        if (!isSelectionMode) {
+            selectedChatIds = emptySet()
         }
     }
     
@@ -49,19 +61,68 @@ fun ChatListScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "Чаты",
-                style = MaterialTheme.typography.headlineMedium
-            )
-            if (!isLoading && chats.isNotEmpty()) {
-                FloatingActionButton(
-                    onClick = onCreateNewChat,
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Новый чат"
-                    )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = if (isSelectionMode && selectedChatIds.isNotEmpty()) {
+                        "Выбрано: ${selectedChatIds.size}"
+                    } else {
+                        "Чаты"
+                    },
+                    style = MaterialTheme.typography.headlineMedium
+                )
+                if (isSelectionMode && selectedChatIds.isNotEmpty()) {
+                    IconButton(
+                        onClick = { showDeleteDialog = true }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Удалить выбранные",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isSelectionMode) {
+                    TextButton(
+                        onClick = { isSelectionMode = false }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Отмена")
+                    }
+                } else {
+                    if (!isLoading && chats.isNotEmpty()) {
+                        FloatingActionButton(
+                            onClick = onCreateNewChat,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Новый чат"
+                            )
+                        }
+                    }
+                    if (chats.isNotEmpty()) {
+                        IconButton(
+                            onClick = { isSelectionMode = true }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckBoxOutlineBlank,
+                                contentDescription = "Выбрать чаты"
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -106,7 +167,19 @@ fun ChatListScreen(
                 items(chats) { chat ->
                     ChatListItem(
                         chat = chat,
-                        onChatClick = { onChatSelected(chat.id) },
+                        isSelected = selectedChatIds.contains(chat.id),
+                        isSelectionMode = isSelectionMode,
+                        onChatClick = {
+                            if (isSelectionMode) {
+                                selectedChatIds = if (selectedChatIds.contains(chat.id)) {
+                                    selectedChatIds - chat.id
+                                } else {
+                                    selectedChatIds + chat.id
+                                }
+                            } else {
+                                onChatSelected(chat.id)
+                            }
+                        },
                         onDeleteClick = {
                             coroutineScope.launch {
                                 chatRepository.deleteChat(chat.id)
@@ -117,11 +190,54 @@ fun ChatListScreen(
             }
         }
     }
+    
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { 
+                Text(
+                    if (selectedChatIds.size == 1) "Удалить чат?" else "Удалить чаты?"
+                ) 
+            },
+            text = { 
+                Text(
+                    if (selectedChatIds.size == 1) {
+                        "Вы уверены, что хотите удалить этот чат?"
+                    } else {
+                        "Вы уверены, что хотите удалить ${selectedChatIds.size} чатов?"
+                    }
+                ) 
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            selectedChatIds.forEach { chatId ->
+                                chatRepository.deleteChat(chatId)
+                            }
+                            selectedChatIds = emptySet()
+                            isSelectionMode = false
+                        }
+                        showDeleteDialog = false
+                    }
+                ) {
+                    Text("Удалить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
 }
 
 @Composable
 fun ChatListItem(
     chat: Chat,
+    isSelected: Boolean = false,
+    isSelectionMode: Boolean = false,
     onChatClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
@@ -133,7 +249,11 @@ fun ChatListItem(
             .clickable(onClick = onChatClick),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
         )
     ) {
         Row(
@@ -143,6 +263,23 @@ fun ChatListItem(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (isSelectionMode) {
+                Icon(
+                    imageVector = if (isSelected) {
+                        Icons.Default.CheckBox
+                    } else {
+                        Icons.Default.CheckBoxOutlineBlank
+                    },
+                    contentDescription = if (isSelected) "Выбрано" else "Не выбрано",
+                    tint = if (isSelected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+            }
             Column(
                 modifier = Modifier.weight(1f)
             ) {
@@ -168,14 +305,16 @@ fun ChatListItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
             }
-            IconButton(
-                onClick = { showDeleteDialog = true }
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Удалить",
-                    tint = MaterialTheme.colorScheme.error
-                )
+            if (!isSelectionMode) {
+                IconButton(
+                    onClick = { showDeleteDialog = true }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Удалить",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
             }
         }
     }
