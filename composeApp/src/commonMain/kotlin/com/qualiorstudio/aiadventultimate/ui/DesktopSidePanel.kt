@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Help
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,6 +38,8 @@ import com.qualiorstudio.aiadventultimate.service.PullRequest
 import com.qualiorstudio.aiadventultimate.utils.openUrl
 import com.qualiorstudio.aiadventultimate.viewmodel.AgentViewModel
 import com.qualiorstudio.aiadventultimate.viewmodel.SettingsViewModel
+import com.qualiorstudio.aiadventultimate.viewmodel.SupportViewModel
+import com.qualiorstudio.aiadventultimate.viewmodel.SupportEmbeddingViewModel
 import com.mikepenz.markdown.m3.Markdown
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -44,7 +47,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 enum class SidePanelTab {
     AGENTS,
     MCP_SERVERS,
-    PULL_REQUESTS
+    PULL_REQUESTS,
+    SUPPORT
 }
 
 @Composable
@@ -142,6 +146,14 @@ fun DesktopSidePanel(
                     },
                     contentDescription = "Pull Requests"
                 )
+                TabIconButton(
+                    icon = Icons.Default.Help,
+                    isSelected = selectedTab == SidePanelTab.SUPPORT,
+                    onClick = { 
+                        selectedTab = if (selectedTab == SidePanelTab.SUPPORT) null else SidePanelTab.SUPPORT
+                    },
+                    contentDescription = "Поддержка"
+                )
             }
             
             Column(
@@ -186,6 +198,11 @@ fun DesktopSidePanel(
                             onReviewRequest = { pr ->
                                 // Review будет обрабатываться внутри компонента
                             }
+                        )
+                    }
+                    SidePanelTab.SUPPORT -> {
+                        SupportTabContent(
+                            settingsViewModel = settingsViewModel
                         )
                     }
                     null -> {
@@ -761,4 +778,59 @@ $diff
 }
 
 expect fun formatDateString(dateString: String): String
+
+@Composable
+fun SupportTabContent(
+    settingsViewModel: SettingsViewModel? = null
+) {
+    var showDocsScreen by remember { mutableStateOf(false) }
+    val defaultSettingsViewModel: SettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val supportViewModel = remember(settingsViewModel) {
+        SupportViewModel(
+            settingsViewModel = settingsViewModel ?: defaultSettingsViewModel
+        )
+    }
+    val supportEmbeddingViewModel = remember { SupportEmbeddingViewModel() }
+    val coroutineScope = rememberCoroutineScope()
+    
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = !showDocsScreen,
+                onClick = { showDocsScreen = false },
+                label = { Text("Чат поддержки") }
+            )
+            FilterChip(
+                selected = showDocsScreen,
+                onClick = { showDocsScreen = true },
+                label = { Text("Документация") }
+            )
+        }
+        
+        Box(modifier = Modifier.weight(1f)) {
+            if (showDocsScreen) {
+                SupportDocsScreenContent(
+                    viewModel = supportEmbeddingViewModel,
+                    onFilesSelected = { filePaths ->
+                        if (filePaths.isNotEmpty()) {
+                            coroutineScope.launch {
+                                supportEmbeddingViewModel.processSupportDocs(filePaths)
+                            }
+                        }
+                    }
+                )
+            } else {
+                SupportScreen(
+                    viewModel = supportViewModel,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    }
+}
 

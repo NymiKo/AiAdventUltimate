@@ -38,13 +38,21 @@ actual fun FilePickerButton(
                 val extension = when {
                     mimeType.contains("pdf") -> "pdf"
                     mimeType.contains("html") -> "html"
+                    mimeType.contains("markdown") -> "md"
+                    mimeType.contains("text") -> "txt"
                     else -> {
                         val fileName = uri.toString().substringAfterLast("/")
                         when {
                             fileName.endsWith(".pdf", ignoreCase = true) -> "pdf"
                             fileName.endsWith(".html", ignoreCase = true) -> "html"
                             fileName.endsWith(".htm", ignoreCase = true) -> "html"
-                            else -> "html"
+                            fileName.endsWith(".md", ignoreCase = true) -> "md"
+                            fileName.endsWith(".markdown", ignoreCase = true) -> "markdown"
+                            fileName.endsWith(".txt", ignoreCase = true) -> "txt"
+                            else -> {
+                                val originalExtension = fileName.substringAfterLast(".", "")
+                                if (originalExtension.isNotEmpty()) originalExtension.lowercase() else "txt"
+                            }
                         }
                     }
                 }
@@ -70,7 +78,13 @@ actual fun FilePickerButton(
         onClick = {
             val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
                 type = "*/*"
-                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/html", "application/pdf"))
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
+                    "text/html",
+                    "application/pdf",
+                    "text/markdown",
+                    "text/x-markdown",
+                    "text/plain"
+                ))
                 putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                 addCategory(Intent.CATEGORY_OPENABLE)
             }
@@ -85,7 +99,7 @@ actual fun FilePickerButton(
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(8.dp))
-        Text("Загрузить HTML/PDF файлы")
+        Text("Загрузить файлы документации")
     }
 }
 

@@ -15,3 +15,7 @@ actual fun getEmbeddingsIndexPath(): String {
     return File(getStorageDirectory(), "embeddings_index.json").absolutePath
 }
 
+actual fun getSupportEmbeddingsIndexPath(): String {
+    return File(getStorageDirectory(), "support_embeddings_index.json").absolutePath
+}
+

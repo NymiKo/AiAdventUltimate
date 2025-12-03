@@ -22,3 +22,9 @@ actual fun getEmbeddingsIndexPath(): String {
     return nsString.stringByAppendingPathComponent("embeddings_index.json")
 }
 
+actual fun getSupportEmbeddingsIndexPath(): String {
+    val documentsPath = getStorageDirectory()
+    val nsString = NSString.create(string = documentsPath)
+    return nsString.stringByAppendingPathComponent("support_embeddings_index.json")
+}
+
