@@ -36,8 +36,10 @@ actual class MCPClientImpl actual constructor(
         }
         
         try {
+            val (actualCommand, actualArgs) = parseBashScriptIfNeeded(command, args)
+            
             val processBuilder = ProcessBuilder().apply {
-                command(this@MCPClientImpl.command, *args.toTypedArray())
+                command(actualCommand, *actualArgs.toTypedArray())
                 environment().putAll(env)
                 redirectErrorStream(false)
             }
@@ -45,9 +47,6 @@ actual class MCPClientImpl actual constructor(
             process = processBuilder.start()
             reader = BufferedReader(InputStreamReader(process!!.inputStream))
             writer = BufferedWriter(OutputStreamWriter(process!!.outputStream))
-            
-            println("[MCP] Процесс запущен, PID: ${process!!.pid()}")
-            println("[MCP] Команда: $command ${args.joinToString(" ")}")
             
             scope.launch(Dispatchers.IO) {
                 readResponses()
@@ -264,6 +263,72 @@ actual class MCPClientImpl actual constructor(
                 pendingRequests.values.forEach { it.completeExceptionally(e) }
                 pendingRequests.clear()
             }
+        }
+    }
+    
+    private fun parseBashScriptIfNeeded(command: String, args: List<String>): Pair<String, List<String>> {
+        if (!command.endsWith(".sh")) {
+            return Pair(command, args)
+        }
+        
+        try {
+            val scriptFile = java.io.File(command)
+            if (!scriptFile.exists() || !scriptFile.canRead()) {
+                return Pair(command, args)
+            }
+            
+            val scriptContent = scriptFile.readText()
+            
+            val javaHomePattern = Regex("export\\s+JAVA_HOME=\"([^\"]+)\"")
+            val javaHomeMatch = javaHomePattern.find(scriptContent)
+            val javaHome = javaHomeMatch?.groupValues?.get(1) ?: "/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+            
+            val jarPatterns = listOf(
+                Regex("exec\\s+\"\\\$JAVA_HOME/bin/java\"\\s+-jar\\s+([^\\s\"]+)"),
+                Regex("exec\\s+\"\\\$JAVA_HOME/bin/java\"\\s+-jar\\s+\"([^\"]+)\""),
+                Regex("exec\\s+\"([^\"]+/java)\"\\s+-jar\\s+([^\\s\"]+)"),
+                Regex("exec\\s+\"([^\"]+/java)\"\\s+-jar\\s+\"([^\"]+)\""),
+                Regex("java\\s+-jar\\s+([^\\s\"]+)"),
+                Regex("java\\s+-jar\\s+\"([^\"]+)\"")
+            )
+            
+            var jarPath: String? = null
+            var javaExec: String? = null
+            
+            for (pattern in jarPatterns) {
+                val match = pattern.find(scriptContent)
+                if (match != null) {
+                    when (match.groupValues.size) {
+                        2 -> {
+                            javaExec = "$javaHome/bin/java"
+                            jarPath = match.groupValues[1]
+                        }
+                        3 -> {
+                            javaExec = match.groupValues[1].replace("\\\$JAVA_HOME", javaHome).replace("\$JAVA_HOME", javaHome)
+                            jarPath = match.groupValues[2]
+                        }
+                    }
+                    break
+                }
+            }
+            
+            if (jarPath != null && javaExec != null) {
+                val scriptDir = scriptFile.parentFile.absolutePath
+                val fullJarPath = when {
+                    jarPath.startsWith("/") -> jarPath
+                    jarPath.startsWith("build/libs/") -> "$scriptDir/$jarPath"
+                    else -> {
+                        val jarFile = java.io.File(scriptDir, jarPath)
+                        if (jarFile.exists()) jarFile.absolutePath else "$scriptDir/$jarPath"
+                    }
+                }
+                
+                return Pair(javaExec, listOf("-jar", fullJarPath))
+            }
+            
+            return Pair(command, args)
+        } catch (e: Exception) {
+            return Pair(command, args)
         }
     }
 }
