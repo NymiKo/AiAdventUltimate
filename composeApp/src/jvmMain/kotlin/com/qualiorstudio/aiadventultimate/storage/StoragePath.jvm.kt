@@ -27,3 +27,7 @@ actual fun getMCPServersFilePath(): String {
     return File(getDataDirectory(), "mcp_servers.json").absolutePath
 }
 
+actual fun getTodoistProjectsFilePath(): String {
+    return File(getDataDirectory(), "todoist_projects.json").absolutePath
+}
+

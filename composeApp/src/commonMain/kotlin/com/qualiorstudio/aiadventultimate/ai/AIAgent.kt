@@ -18,11 +18,15 @@ class AIAgent(
     private val maxIterations: Int = 10,
     private var customSystemPrompt: String? = null,
     private val mcpServerManager: com.qualiorstudio.aiadventultimate.mcp.MCPServerManager? = null,
-    private val projectTools: ProjectTools? = null
+    private val projectTools: ProjectTools? = null,
+    private val taskBreakdownTools: TaskBreakdownTools? = null,
+    private val onTodoistTaskCreated: (() -> Unit)? = null,
+    private val onProgressMessage: ((String) -> Unit)? = null
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private var tools: List<DeepSeekTool> = emptyList()
     private var projectContext: String = ""
+    private var currentRagContext: String? = null
     
     private val defaultSystemPrompt = """
 You are a helpful AI assistant.
@@ -43,6 +47,34 @@ Follow this priority order when answering questions:
    - MCP tools can provide real-time data, documentation, or external resources
    - Call MCP tools when you need information that is not in the RAG context
    - After using MCP tools, cite them appropriately in your response
+   
+SPECIAL TOOL: breakdown_task
+   - Use this tool when the user asks to create a task that requires breaking down into smaller subtasks
+   - Examples: "Add feature to display ad details", "Implement authentication", "Create notification system"
+   - This tool automatically creates/finds a project in Todoist and breaks down the task into subtasks
+   - The tool uses RAG context from the knowledge base to better understand the project structure
+   - IMPORTANT: The tool returns ONLY subtasks - DO NOT create a main task, only subtasks!
+   - CRITICAL: After calling breakdown_task, you MUST create each subtask in Todoist using create_task tool
+   - MANDATORY RULE: projectId is ALWAYS provided in the breakdown_task response - you MUST include it in EVERY create_task call
+   - Example with projectId: create_task({"content": "Task title", "description": "Task description", "priority": 2, "projectId": "12345678"})
+   - CRITICAL: If projectId is provided but you don't include it in create_task, tasks will go to Inbox - this is WRONG!
+   - DO NOT create tasks in Inbox - ALWAYS use projectId from the breakdown_task response!
+   - DO NOT create a main task - only create subtasks!
+   - DO NOT skip any subtasks - create ALL of them!
+   - For simple tasks (like "Buy milk"), use the regular create_task from Todoist MCP instead
+
+AUTOMATIC TASK EXECUTION: execute_tasks
+   - AFTER creating ALL subtasks using create_task, you MUST call execute_tasks tool
+   - This tool automatically executes all tasks from the project one by one
+   - It uses RAG context from the project knowledge base to understand the project structure
+   - For each task: gets task details, uses RAG for context, executes the task, marks as completed
+   - The tool works automatically - you only need to call it ONCE after creating all subtasks
+   - Format: execute_tasks({"project_id": "12345678"}) - use the project_id from breakdown_task response
+   - CRITICAL: Call execute_tasks ONLY after ALL subtasks have been created!
+   - CRITICAL: You MUST call execute_tasks in the SAME tool call chain as create_task calls!
+   - CRITICAL: Do NOT finish the conversation without calling execute_tasks!
+   - The tool will show progress messages in chat for each step
+   - Example workflow: breakdown_task -> create_task (for each subtask) -> execute_tasks
 
 3. General Knowledge - FALLBACK:
    - Only use your general knowledge if:
@@ -79,10 +111,12 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
     suspend fun initialize() {
         val mcpTools = mcpServerManager?.getAvailableTools() ?: emptyList()
         val projectToolsList = projectTools?.getTools() ?: emptyList()
-        tools = mcpTools + projectToolsList
+        val taskBreakdownToolsList = taskBreakdownTools?.getTools() ?: emptyList()
+        tools = mcpTools + projectToolsList + taskBreakdownToolsList
         println("=== AIAgent.initialize() ===")
         println("Загружено MCP инструментов: ${mcpTools.size}")
         println("Загружено инструментов проекта: ${projectToolsList.size}")
+        println("Загружено инструментов разбиения задач: ${taskBreakdownToolsList.size}")
         println("Всего инструментов: ${tools.size}")
         if (tools.isEmpty()) {
             println("⚠️ ВНИМАНИЕ: Нет доступных инструментов!")
@@ -92,11 +126,18 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
             if (projectTools == null) {
                 println("  Причина: projectTools = null")
             }
+            if (taskBreakdownTools == null) {
+                println("  Причина: taskBreakdownTools = null")
+            }
         } else {
             tools.forEachIndexed { index, tool ->
                 println("  [$index] ${tool.function.name}: ${tool.function.description.take(60)}...")
             }
         }
+    }
+    
+    fun updateRagContext(context: String?) {
+        currentRagContext = context
     }
 
     suspend fun processMessage(
@@ -107,16 +148,21 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
         maxTokens: Int = 8000
     ): ProcessMessageResult {
         val ragEnabled = useRAG && ragService != null && ragService.isAvailable()
+        var ragContextForTools: String? = null
+        
         return try {
             if (ragEnabled) {
                 val comparison = ragService?.buildComparison(userMessage)
                 if (comparison != null) {
                     println("=== RAG: Генерирую ответ только по reranker-контексту ===")
+                    ragContextForTools = comparison.reranked.context
+                    updateRagContext(ragContextForTools)
                     val rerankedCompletion = requestCompletion(
                         comparison.reranked.prompt,
                         conversationHistory,
                         temperature = temperature,
-                        maxTokens = maxTokens
+                        maxTokens = maxTokens,
+                        ragContext = ragContextForTools
                     )
                     val variants = listOf(
                         createVariant(
@@ -141,7 +187,8 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
                 userMessage, 
                 conversationHistory,
                 temperature = temperature,
-                maxTokens = maxTokens
+                maxTokens = maxTokens,
+                ragContext = ragContextForTools
             )
             val shortPhrase = generateShortPhrase(completion.content, temperature, maxTokens)
 
@@ -165,7 +212,8 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
         userContent: String,
         conversationHistory: List<DeepSeekMessage>,
         temperature: Double = 0.7,
-        maxTokens: Int = 8000
+        maxTokens: Int = 8000,
+        ragContext: String? = null
     ): CompletionOutput {
         val finalSystemPrompt = systemPrompt
         println("=== AIAgent System Prompt ===")
@@ -225,10 +273,19 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
                         
                         val result = when {
                             mcpServerManager?.hasTools(functionName) == true -> {
-                                mcpServerManager.callTool(functionName, argumentsJson)
+                                val toolResult = mcpServerManager.callTool(functionName, argumentsJson)
+                                // Отслеживаем успешное создание задачи в Todoist
+                                if (functionName == "create_task") {
+                                    println("✓ Задача создана в Todoist, уведомляем об обновлении списка")
+                                    onTodoistTaskCreated?.invoke()
+                                }
+                                toolResult
                             }
                             projectTools != null && isProjectTool(functionName) -> {
                                 projectTools.executeTool(functionName, argumentsJson)
+                            }
+                            taskBreakdownTools != null && (functionName == "breakdown_task" || functionName == "breakdown_and_create_task" || functionName == "execute_tasks") -> {
+                                taskBreakdownTools.executeTool(functionName, argumentsJson, currentRagContext)
                             }
                             else -> null
                         }
@@ -406,6 +463,10 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
             "search_in_files",
             "get_file_info"
         )
+    }
+    
+    private fun isTaskBreakdownTool(functionName: String): Boolean {
+        return functionName == "breakdown_and_create_task"
     }
     
     fun close() {

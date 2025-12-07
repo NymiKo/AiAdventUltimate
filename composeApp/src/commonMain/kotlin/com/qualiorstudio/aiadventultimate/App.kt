@@ -533,7 +533,8 @@ fun ChatScreen(
                         currentProject = currentProject,
                         githubBranchInfo = githubBranchInfo,
                         mcpManager = mcpManager,
-                        settingsViewModel = settingsViewModel
+                        settingsViewModel = settingsViewModel,
+                        chatViewModel = viewModel
                     )
                 }
             }

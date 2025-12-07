@@ -10,3 +10,5 @@ expect fun getAgentConnectionsFilePath(): String
 
 expect fun getMCPServersFilePath(): String
 
+expect fun getTodoistProjectsFilePath(): String
+

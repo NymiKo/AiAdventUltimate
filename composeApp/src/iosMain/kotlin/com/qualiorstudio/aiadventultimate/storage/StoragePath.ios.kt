@@ -50,3 +50,12 @@ actual fun getMCPServersFilePath(): String {
     }
 }
 
+actual fun getTodoistProjectsFilePath(): String {
+    val dataDir = getDataDirectory()
+    return if (dataDir.isNotEmpty()) {
+        "$dataDir/todoist_projects.json"
+    } else {
+        "todoist_projects.json"
+    }
+}
+

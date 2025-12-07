@@ -25,6 +25,10 @@ actual fun getMCPServersFilePath(): String {
     return File(getDataDirectory(), "mcp_servers.json").absolutePath
 }
 
+actual fun getTodoistProjectsFilePath(): String {
+    return File(getDataDirectory(), "todoist_projects.json").absolutePath
+}
+
 private var applicationContext: Context? = null
 
 fun setApplicationContext(context: Context) {

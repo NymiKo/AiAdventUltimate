@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Help
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,12 +44,15 @@ import com.qualiorstudio.aiadventultimate.viewmodel.SupportEmbeddingViewModel
 import com.mikepenz.markdown.m3.Markdown
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.serialization.json.*
+import kotlinx.serialization.Serializable
 
 enum class SidePanelTab {
     AGENTS,
     MCP_SERVERS,
     PULL_REQUESTS,
-    SUPPORT
+    SUPPORT,
+    TODOIST
 }
 
 @Composable
@@ -65,6 +69,7 @@ fun DesktopSidePanel(
     githubBranchInfo: com.qualiorstudio.aiadventultimate.service.GitHubBranchInfo? = null,
     mcpManager: com.qualiorstudio.aiadventultimate.mcp.MCPServerManager? = null,
     settingsViewModel: SettingsViewModel? = null,
+    chatViewModel: com.qualiorstudio.aiadventultimate.viewmodel.ChatViewModel? = null,
     modifier: Modifier = Modifier
 ) {
     val agents by agentViewModel.agents.collectAsState()
@@ -154,6 +159,14 @@ fun DesktopSidePanel(
                     },
                     contentDescription = "Поддержка"
                 )
+                TabIconButton(
+                    icon = Icons.Default.CheckCircle,
+                    isSelected = selectedTab == SidePanelTab.TODOIST,
+                    onClick = { 
+                        selectedTab = if (selectedTab == SidePanelTab.TODOIST) null else SidePanelTab.TODOIST
+                    },
+                    contentDescription = "Todoist"
+                )
             }
             
             Column(
@@ -203,6 +216,13 @@ fun DesktopSidePanel(
                     SidePanelTab.SUPPORT -> {
                         SupportTabContent(
                             settingsViewModel = settingsViewModel
+                        )
+                    }
+                    SidePanelTab.TODOIST -> {
+                        com.qualiorstudio.aiadventultimate.ui.TodoistTabContent(
+                            currentProject = currentProject,
+                            mcpManager = mcpManager,
+                            chatViewModel = chatViewModel
                         )
                     }
                     null -> {

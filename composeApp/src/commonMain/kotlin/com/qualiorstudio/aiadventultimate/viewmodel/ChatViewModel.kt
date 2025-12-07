@@ -19,6 +19,8 @@ import com.qualiorstudio.aiadventultimate.repository.MCPServerRepository
 import com.qualiorstudio.aiadventultimate.repository.MCPServerRepositoryImpl
 import com.qualiorstudio.aiadventultimate.repository.DEFAULT_GITHUB_MCP_SERVER_ID
 import com.qualiorstudio.aiadventultimate.mcp.createMCPServerManager
+import com.qualiorstudio.aiadventultimate.service.TaskBreakdownService
+import com.qualiorstudio.aiadventultimate.ai.TaskBreakdownTools
 import com.qualiorstudio.aiadventultimate.utils.currentTimeMillis
 import com.qualiorstudio.aiadventultimate.voice.createVoiceOutputService
 import kotlinx.coroutines.Job
@@ -55,6 +57,7 @@ class ChatViewModel(
     private var lastRerankMinScore: Double? = null
     private var lastRerankedRetentionRatio: Double? = null
     private var lastMaxIterations: Int? = null
+    private var taskBreakdownService: TaskBreakdownService? = null
     
     private val _selectedAgents = MutableStateFlow<List<Agent>>(emptyList())
     val selectedAgents: StateFlow<List<Agent>> = _selectedAgents.asStateFlow()
@@ -69,6 +72,21 @@ class ChatViewModel(
     
     private val _githubBranchInfo = MutableStateFlow<com.qualiorstudio.aiadventultimate.service.GitHubBranchInfo?>(null)
     val githubBranchInfo: StateFlow<com.qualiorstudio.aiadventultimate.service.GitHubBranchInfo?> = _githubBranchInfo.asStateFlow()
+    
+    private val _todoistTasksUpdateTrigger = MutableStateFlow(0L)
+    val todoistTasksUpdateTrigger: StateFlow<Long> = _todoistTasksUpdateTrigger.asStateFlow()
+    
+    fun triggerTodoistTasksUpdate() {
+        _todoistTasksUpdateTrigger.value = System.currentTimeMillis()
+    }
+    
+    fun addProgressMessage(text: String) {
+        val progressMessage = ChatMessage(
+            text = text,
+            isUser = false
+        )
+        _messages.value = _messages.value + progressMessage
+    }
     
     private val gitBranchService = com.qualiorstudio.aiadventultimate.service.createGitBranchService()
     private var lastHeadModified: Long? = null
@@ -85,7 +103,22 @@ class ChatViewModel(
                     _currentBranch.value = null
                     lastHeadModified = null
                 }
+                // Обновляем TaskBreakdownService при изменении проекта
+                updateTaskBreakdownService(project?.name)
             }
+        }
+    }
+    
+    private fun updateTaskBreakdownService(projectName: String?) {
+        if (deepSeek != null && mcpManager != null) {
+            taskBreakdownService = TaskBreakdownService(deepSeek!!, mcpManager, projectName)
+            println("=== TaskBreakdownService обновлен ===")
+            println("projectName: $projectName")
+            println("deepSeek: ${deepSeek != null}")
+            println("mcpManager: ${mcpManager != null}")
+        } else {
+            taskBreakdownService = null
+            println("⚠️ TaskBreakdownService не создан: deepSeek=${deepSeek != null}, mcpManager=${mcpManager != null}")
         }
     }
     
@@ -168,6 +201,7 @@ AGENT_ID: <id_агента>
                 rerankMinScore = settings.rerankMinScore,
                 rerankedRetentionRatio = settings.rerankedRetentionRatio
             )
+            updateTaskBreakdownService(currentProject.value?.name)
             
             // Инициализируем MCP серверы
             val mcpRepo = mcpServerRepository ?: MCPServerRepositoryImpl()
@@ -230,14 +264,28 @@ Example: If the user asks "What open PRs does this project have?", you should im
             ""
         }
         
+        val taskBreakdownTools = taskBreakdownService?.let {
+            TaskBreakdownTools(
+                taskBreakdownService = it,
+                onProgressMessage = { message -> addProgressMessage(message) },
+                deepSeek = deepSeek,
+                ragService = ragService,
+                mcpManager = mcpManager,
+                projectTools = projectTools
+            )
+        }
+        
         if (selectedAgents.isNotEmpty() && useCoordinator && coordinatorAgent == null) {
             val newCoordinator = AIAgent(
+                onTodoistTaskCreated = { triggerTodoistTasksUpdate() },
+                onProgressMessage = { message -> addProgressMessage(message) },
                 deepSeek = deepSeek!!,
                 ragService = null,
                 maxIterations = settings.maxIterations,
                 customSystemPrompt = coordinatorSystemPrompt,
                 mcpServerManager = mcpManager,
-                projectTools = projectTools
+                projectTools = projectTools,
+                taskBreakdownTools = taskBreakdownTools
             )
             newCoordinator.updateProjectContext(currentProjectContext)
             coordinatorAgent = newCoordinator
@@ -268,7 +316,10 @@ Example: If the user asks "What open PRs does this project have?", you should im
                     maxIterations = settings.maxIterations,
                     customSystemPrompt = agent.systemPrompt,
                     mcpServerManager = mcpManager,
-                    projectTools = projectTools
+                    projectTools = projectTools,
+                    taskBreakdownTools = taskBreakdownTools,
+                    onTodoistTaskCreated = { triggerTodoistTasksUpdate() },
+                    onProgressMessage = { message -> addProgressMessage(message) }
                 )
                 newAgent.updateProjectContext(currentProjectContext)
                 agentInstances[agent.id] = newAgent
@@ -469,12 +520,27 @@ Example: If the user asks "What open PRs does this project have?", you should im
                     val projectTools = currentProject.value?.let { 
                         com.qualiorstudio.aiadventultimate.ai.ProjectTools(it)
                     }
+                    
+                    val taskBreakdownTools = taskBreakdownService?.let {
+                        TaskBreakdownTools(
+                            taskBreakdownService = it,
+                            onProgressMessage = { message -> addProgressMessage(message) },
+                            deepSeek = deepSeek ?: DeepSeek(apiKey = settings.deepSeekApiKey),
+                            ragService = ragService,
+                            mcpManager = mcpManager,
+                            projectTools = projectTools
+                        )
+                    }
+                    
                     val defaultAgent = AIAgent(
                         deepSeek = deepSeek ?: DeepSeek(apiKey = settings.deepSeekApiKey),
                         ragService = ragService,
                         maxIterations = settings.maxIterations,
                         mcpServerManager = mcpManager,
-                        projectTools = projectTools
+                        projectTools = projectTools,
+                        taskBreakdownTools = taskBreakdownTools,
+                        onTodoistTaskCreated = { triggerTodoistTasksUpdate() },
+                        onProgressMessage = { message -> addProgressMessage(message) }
                     )
                     defaultAgent.initialize()
                     val result = defaultAgent.processMessage(
