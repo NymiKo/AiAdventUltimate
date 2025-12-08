@@ -6,6 +6,10 @@ import com.qualiorstudio.aiadventultimate.ai.AIAgent
 import com.qualiorstudio.aiadventultimate.ai.RAGService
 import com.qualiorstudio.aiadventultimate.api.DeepSeek
 import com.qualiorstudio.aiadventultimate.api.DeepSeekMessage
+import com.qualiorstudio.aiadventultimate.api.LLMProvider
+import com.qualiorstudio.aiadventultimate.api.DeepSeekLLMProvider
+import com.qualiorstudio.aiadventultimate.api.LMStudioLLMProvider
+import com.qualiorstudio.aiadventultimate.api.LMStudio
 import com.qualiorstudio.aiadventultimate.model.Agent
 import com.qualiorstudio.aiadventultimate.model.AgentConnection
 import com.qualiorstudio.aiadventultimate.model.Chat
@@ -47,6 +51,7 @@ class ChatViewModel(
     private val mcpManager = createMCPServerManager()
     
     private var deepSeek: DeepSeek? = null
+    private var llmProvider: LLMProvider? = null
     private var ragService: RAGService? = null
     private val agentInstances = mutableMapOf<String, AIAgent>()
     private var coordinatorAgent: AIAgent? = null
@@ -57,6 +62,8 @@ class ChatViewModel(
     private var lastRerankMinScore: Double? = null
     private var lastRerankedRetentionRatio: Double? = null
     private var lastMaxIterations: Int? = null
+    private var lastUseLocalLLM: Boolean? = null
+    private var lastLocalLLMModel: String? = null
     private var taskBreakdownService: TaskBreakdownService? = null
     
     private val _selectedAgents = MutableStateFlow<List<Agent>>(emptyList())
@@ -110,15 +117,19 @@ class ChatViewModel(
     }
     
     private fun updateTaskBreakdownService(projectName: String?) {
-        if (deepSeek != null && mcpManager != null) {
-            taskBreakdownService = TaskBreakdownService(deepSeek!!, mcpManager, projectName)
+        val provider = llmProvider
+        if (provider is DeepSeekLLMProvider && mcpManager != null) {
+            taskBreakdownService = TaskBreakdownService(provider.deepSeek, mcpManager, projectName)
             println("=== TaskBreakdownService обновлен ===")
             println("projectName: $projectName")
-            println("deepSeek: ${deepSeek != null}")
+            println("llmProvider: ${provider != null}")
             println("mcpManager: ${mcpManager != null}")
         } else {
             taskBreakdownService = null
-            println("⚠️ TaskBreakdownService не создан: deepSeek=${deepSeek != null}, mcpManager=${mcpManager != null}")
+            println("⚠️ TaskBreakdownService не создан: llmProvider=${provider != null}, mcpManager=${mcpManager != null}")
+            if (provider !is DeepSeekLLMProvider) {
+                println("  Причина: TaskBreakdownService работает только с DeepSeek")
+            }
         }
     }
     
@@ -169,20 +180,23 @@ AGENT_ID: <id_агента>
         val settings = getSettings()
         
         // Проверяем, нужно ли пересоздавать базовые сервисы
-        val needsRecreation = deepSeek == null || 
+        val needsRecreation = llmProvider == null || 
             ragService == null ||
             lastApiKey != settings.deepSeekApiKey ||
             lastLmStudioUrl != settings.lmStudioBaseUrl ||
             lastTopK != settings.ragTopK ||
             lastRerankMinScore != settings.rerankMinScore ||
             lastRerankedRetentionRatio != settings.rerankedRetentionRatio ||
-            lastMaxIterations != settings.maxIterations
+            lastMaxIterations != settings.maxIterations ||
+            lastUseLocalLLM != settings.useLocalLLM ||
+            lastLocalLLMModel != settings.localLLMModel
         
         if (needsRecreation) {
             // Закрываем старые сервисы
             agentInstances.values.forEach { it.close() }
             ragService?.close()
             deepSeek = null
+            llmProvider = null
             agentInstances.clear()
             
             // Сохраняем текущие настройки
@@ -192,9 +206,20 @@ AGENT_ID: <id_агента>
             lastRerankMinScore = settings.rerankMinScore
             lastRerankedRetentionRatio = settings.rerankedRetentionRatio
             lastMaxIterations = settings.maxIterations
+            lastUseLocalLLM = settings.useLocalLLM
+            lastLocalLLMModel = settings.localLLMModel
             
-            // Создаем новые базовые сервисы
-            deepSeek = DeepSeek(apiKey = settings.deepSeekApiKey)
+            // Создаем LLM провайдер
+            if (settings.useLocalLLM && settings.localLLMModel != null) {
+                val lmStudio = LMStudio(baseUrl = settings.lmStudioBaseUrl, defaultModel = settings.localLLMModel)
+                llmProvider = LMStudioLLMProvider(lmStudio, settings.localLLMModel)
+                println("=== Используется локальная LLM: ${settings.localLLMModel} ===")
+            } else {
+                deepSeek = DeepSeek(apiKey = settings.deepSeekApiKey)
+                llmProvider = DeepSeekLLMProvider(deepSeek!!)
+                println("=== Используется облачная LLM (DeepSeek) ===")
+            }
+            
             ragService = RAGService(
                 lmStudioBaseUrl = settings.lmStudioBaseUrl,
                 topK = settings.ragTopK,
@@ -264,22 +289,23 @@ Example: If the user asks "What open PRs does this project have?", you should im
             ""
         }
         
+        val currentLLMProvider = llmProvider
         val taskBreakdownTools = taskBreakdownService?.let {
             TaskBreakdownTools(
                 taskBreakdownService = it,
                 onProgressMessage = { message -> addProgressMessage(message) },
-                deepSeek = deepSeek,
+                deepSeek = if (currentLLMProvider is DeepSeekLLMProvider) currentLLMProvider.deepSeek else null,
                 ragService = ragService,
                 mcpManager = mcpManager,
                 projectTools = projectTools
             )
         }
         
-        if (selectedAgents.isNotEmpty() && useCoordinator && coordinatorAgent == null) {
+        if (selectedAgents.isNotEmpty() && useCoordinator && coordinatorAgent == null && llmProvider != null) {
             val newCoordinator = AIAgent(
                 onTodoistTaskCreated = { triggerTodoistTasksUpdate() },
                 onProgressMessage = { message -> addProgressMessage(message) },
-                deepSeek = deepSeek!!,
+                llmProvider = llmProvider!!,
                 ragService = null,
                 maxIterations = settings.maxIterations,
                 customSystemPrompt = coordinatorSystemPrompt,
@@ -309,9 +335,9 @@ Example: If the user asks "What open PRs does this project have?", you should im
         
         // Создаем экземпляры для новых агентов
         selectedAgents.forEach { agent ->
-            if (!agentInstances.containsKey(agent.id)) {
+            if (!agentInstances.containsKey(agent.id) && llmProvider != null) {
                 val newAgent = AIAgent(
-                    deepSeek = deepSeek!!,
+                    llmProvider = llmProvider!!,
                     ragService = ragService,
                     maxIterations = settings.maxIterations,
                     customSystemPrompt = agent.systemPrompt,
@@ -348,7 +374,11 @@ Example: If the user asks "What open PRs does this project have?", you should im
         )
         
         try {
-            val response = deepSeek!!.sendMessage(messages, null, temperature = 0.3, maxTokens = 100)
+            val response = if (llmProvider != null) {
+                llmProvider!!.sendMessage(messages, null, temperature = 0.3, maxTokens = 100)
+            } else {
+                return availableAgents.first()
+            }
             val coordinatorResponse = response.choices.firstOrNull()?.message?.content?.trim() ?: return availableAgents.first()
             
             val agentIdMatch = Regex("AGENT_ID:\\s*([^\\s]+)").find(coordinatorResponse)
@@ -521,11 +551,21 @@ Example: If the user asks "What open PRs does this project have?", you should im
                         com.qualiorstudio.aiadventultimate.ai.ProjectTools(it)
                     }
                     
+                    val currentLLMProvider = llmProvider ?: run {
+                        if (settings.useLocalLLM && settings.localLLMModel != null) {
+                            val lmStudio = LMStudio(baseUrl = settings.lmStudioBaseUrl, defaultModel = settings.localLLMModel)
+                            LMStudioLLMProvider(lmStudio, settings.localLLMModel)
+                        } else {
+                            val ds = DeepSeek(apiKey = settings.deepSeekApiKey)
+                            DeepSeekLLMProvider(ds)
+                        }
+                    }
+                    
                     val taskBreakdownTools = taskBreakdownService?.let {
                         TaskBreakdownTools(
                             taskBreakdownService = it,
                             onProgressMessage = { message -> addProgressMessage(message) },
-                            deepSeek = deepSeek ?: DeepSeek(apiKey = settings.deepSeekApiKey),
+                            deepSeek = if (currentLLMProvider is DeepSeekLLMProvider) currentLLMProvider.deepSeek else null,
                             ragService = ragService,
                             mcpManager = mcpManager,
                             projectTools = projectTools
@@ -533,7 +573,7 @@ Example: If the user asks "What open PRs does this project have?", you should im
                     }
                     
                     val defaultAgent = AIAgent(
-                        deepSeek = deepSeek ?: DeepSeek(apiKey = settings.deepSeekApiKey),
+                        llmProvider = currentLLMProvider,
                         ragService = ragService,
                         maxIterations = settings.maxIterations,
                         mcpServerManager = mcpManager,
@@ -942,8 +982,18 @@ ${if (query.isNotBlank()) {
 }}
                 """.trimIndent()
                 
+                val currentLLMProvider = llmProvider ?: run {
+                    if (settings.useLocalLLM && settings.localLLMModel != null) {
+                        val lmStudio = LMStudio(baseUrl = settings.lmStudioBaseUrl, defaultModel = settings.localLLMModel)
+                        LMStudioLLMProvider(lmStudio, settings.localLLMModel)
+                    } else {
+                        val ds = DeepSeek(apiKey = settings.deepSeekApiKey)
+                        DeepSeekLLMProvider(ds)
+                    }
+                }
+                
                 val defaultAgent = AIAgent(
-                    deepSeek = deepSeek ?: DeepSeek(apiKey = settings.deepSeekApiKey),
+                    llmProvider = currentLLMProvider,
                     ragService = null,
                     maxIterations = 5,
                     customSystemPrompt = helpSystemPrompt,

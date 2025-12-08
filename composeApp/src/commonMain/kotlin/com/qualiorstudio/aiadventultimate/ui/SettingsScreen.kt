@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,7 +24,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.qualiorstudio.aiadventultimate.api.LMStudio
 import com.qualiorstudio.aiadventultimate.viewmodel.SettingsViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,6 +86,28 @@ fun SettingsScreen(
                 keyboardType = KeyboardType.Text,
                 isPassword = true
             )
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // Секция локальной LLM
+        SettingsSection(title = "Локальная LLM") {
+            SettingsSwitchItem(
+                title = "Использовать локальную LLM",
+                description = "Использовать локальную модель из LM Studio вместо облачной",
+                icon = Icons.Default.Storage,
+                checked = settings.useLocalLLM,
+                onCheckedChange = { viewModel.setUseLocalLLM(it) }
+            )
+            
+            if (settings.useLocalLLM) {
+                Spacer(modifier = Modifier.height(8.dp))
+                LocalLLMModelSelector(
+                    baseUrl = settings.lmStudioBaseUrl,
+                    selectedModel = settings.localLLMModel,
+                    onModelSelected = { viewModel.setLocalLLMModel(it) }
+                )
+            }
         }
         
         Spacer(modifier = Modifier.height(16.dp))
@@ -492,6 +517,145 @@ fun SettingsNumberFieldItem(
                 unfocusedBorderColor = MaterialTheme.colorScheme.outline
             )
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LocalLLMModelSelector(
+    baseUrl: String,
+    selectedModel: String?,
+    onModelSelected: (String?) -> Unit
+) {
+    var availableModels by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    
+    LaunchedEffect(baseUrl) {
+        if (baseUrl.isNotBlank()) {
+            isLoading = true
+            error = null
+            try {
+                val lmStudio = LMStudio(baseUrl = baseUrl)
+                val models = lmStudio.getAvailableModels()
+                availableModels = models
+                if (models.isNotEmpty() && selectedModel == null) {
+                    onModelSelected(models.first())
+                }
+                lmStudio.close()
+            } catch (e: Exception) {
+                error = "Не удалось загрузить модели: ${e.message}"
+                availableModels = emptyList()
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Storage,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = "Модель LLM",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Выберите локальную модель из LM Studio",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        if (isLoading) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Загрузка моделей...",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else if (error != null) {
+            Text(
+                text = error!!,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        } else if (availableModels.isEmpty()) {
+            Text(
+                text = "Модели не найдены. Убедитесь, что LM Studio запущен и модели загружены.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded }
+            ) {
+                OutlinedTextField(
+                    value = selectedModel ?: "",
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(),
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                    },
+                    label = { Text("Выберите модель") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    availableModels.forEach { model ->
+                        DropdownMenuItem(
+                            text = { Text(model) },
+                            onClick = {
+                                onModelSelected(model)
+                                expanded = false
+                            }
+                        )
+                    }
+                    Divider()
+                    DropdownMenuItem(
+                        text = { Text("Отменить выбор") },
+                        onClick = {
+                            onModelSelected(null)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 

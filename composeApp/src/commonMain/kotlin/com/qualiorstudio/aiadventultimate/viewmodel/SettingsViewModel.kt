@@ -113,5 +113,15 @@ class SettingsViewModel : ViewModel() {
         _settings.value = _settings.value.copy(maxIterations = value.coerceAtLeast(1))
         saveSettings()
     }
+    
+    fun setUseLocalLLM(enabled: Boolean) {
+        _settings.value = _settings.value.copy(useLocalLLM = enabled)
+        saveSettings()
+    }
+    
+    fun setLocalLLMModel(model: String?) {
+        _settings.value = _settings.value.copy(localLLMModel = model)
+        saveSettings()
+    }
 }
 

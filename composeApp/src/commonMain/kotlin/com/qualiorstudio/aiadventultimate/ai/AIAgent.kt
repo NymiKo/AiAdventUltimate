@@ -13,7 +13,7 @@ data class ProcessMessageResult(
 )
 
 class AIAgent(
-    private val deepSeek: DeepSeek,
+    private val llmProvider: LLMProvider,
     private val ragService: RAGService? = null,
     private val maxIterations: Int = 10,
     private var customSystemPrompt: String? = null,
@@ -243,7 +243,7 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
                 }
             }
 
-            var response = deepSeek.sendMessage(messages, tools.ifEmpty { null }, temperature = temperature, maxTokens = maxTokens)
+            var response = llmProvider.sendMessage(messages, tools.ifEmpty { null }, temperature = temperature, maxTokens = maxTokens)
             var currentMessages = messages.toMutableList()
 
             var iterationCount = 0
@@ -332,7 +332,7 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
 
                 println("Sending follow-up request with ${currentMessages.size} messages")
                 println("Tools will be included: ${tools.isNotEmpty()}")
-                response = deepSeek.sendMessage(currentMessages, tools, temperature = temperature, maxTokens = maxTokens)
+                response = llmProvider.sendMessage(currentMessages, tools, temperature = temperature, maxTokens = maxTokens)
                 println("Follow-up response finish_reason: ${response.choices.firstOrNull()?.finishReason}")
             }
 
@@ -440,7 +440,7 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
                 DeepSeekMessage(role = "user", content = prompt)
             )
             
-            val response = deepSeek.sendMessage(messages, null, temperature = temperature, maxTokens = maxTokens)
+            val response = llmProvider.sendMessage(messages, null, temperature = temperature, maxTokens = maxTokens)
             response.choices.firstOrNull()?.message?.content?.trim()
                 ?.take(200)
                 ?: "Готово"

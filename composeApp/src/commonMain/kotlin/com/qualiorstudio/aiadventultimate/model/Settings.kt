@@ -19,6 +19,9 @@ data class AppSettings(
     val rerankedRetentionRatio: Double = 0.5,
     val lmStudioBaseUrl: String = "http://localhost:1234",
     // Параметры AI Agent
-    val maxIterations: Int = 10
+    val maxIterations: Int = 10,
+    // Локальная LLM
+    val useLocalLLM: Boolean = false,
+    val localLLMModel: String? = null
 )
 

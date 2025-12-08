@@ -3,6 +3,7 @@ package com.qualiorstudio.aiadventultimate.api
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -16,6 +17,7 @@ class LMStudio(
     private val client: HttpClient by lazy { createHttpClient() }
     private val embeddingsUrl = "$baseUrl/v1/embeddings"
     private val modelsUrl = "$baseUrl/v1/models"
+    private val chatCompletionsUrl = "$baseUrl/v1/chat/completions"
 
     private fun createHttpClient(): HttpClient {
         return HttpClient {
@@ -26,6 +28,11 @@ class LMStudio(
                     isLenient = true
                     encodeDefaults = true
                 })
+            }
+            install(HttpTimeout) {
+                connectTimeoutMillis = 30_000
+                socketTimeoutMillis = 600_000
+                requestTimeoutMillis = 600_000
             }
         }
     }
@@ -97,6 +104,69 @@ class LMStudio(
             availableModels.first()
         } else {
             "local-model"
+        }
+    }
+
+    suspend fun sendMessage(
+        messages: List<DeepSeekMessage>,
+        model: String? = null,
+        temperature: Double = 0.7,
+        maxTokens: Int = 8000
+    ): DeepSeekResponse {
+        return try {
+            val modelToUse = model ?: defaultModel ?: getDefaultModel()
+            
+            val lmStudioMessages = messages.map { msg ->
+                LMStudioChatMessage(
+                    role = msg.role,
+                    content = msg.content ?: ""
+                )
+            }
+            
+            val request = LMStudioChatRequest(
+                model = modelToUse,
+                messages = lmStudioMessages,
+                temperature = temperature,
+                maxTokens = maxTokens
+            )
+
+            val response = client.post(chatCompletionsUrl) {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+
+            if (response.status != HttpStatusCode.OK) {
+                val errorBody = response.bodyAsText()
+                throw Exception("LM Studio API Error: ${response.status.value} - $errorBody")
+            }
+
+            val chatResponse = response.body<LMStudioChatResponse>()
+            
+            DeepSeekResponse(
+                id = chatResponse.id,
+                `object` = chatResponse.`object`,
+                created = chatResponse.created,
+                model = chatResponse.model,
+                choices = chatResponse.choices.map { choice ->
+                    DeepSeekChoice(
+                        index = choice.index,
+                        message = DeepSeekMessage(
+                            role = choice.message.role,
+                            content = choice.message.content
+                        ),
+                        finishReason = choice.finishReason
+                    )
+                },
+                usage = DeepSeekUsage(
+                    promptTokens = chatResponse.usage.promptTokens,
+                    completionTokens = chatResponse.usage.completionTokens,
+                    totalTokens = chatResponse.usage.totalTokens
+                )
+            )
+        } catch (e: Exception) {
+            println("Exception in LMStudio.sendMessage: ${e.message}")
+            e.printStackTrace()
+            throw Exception("Failed to send message: ${e.message ?: "Unknown error"}")
         }
     }
 
