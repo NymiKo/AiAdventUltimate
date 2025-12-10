@@ -2,8 +2,8 @@ package com.qualiorstudio.aiadventultimate.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.qualiorstudio.aiadventultimate.api.DeepSeek
 import com.qualiorstudio.aiadventultimate.api.DeepSeekMessage
+import com.qualiorstudio.aiadventultimate.api.OllamaChat
 import com.qualiorstudio.aiadventultimate.model.Agent
 import com.qualiorstudio.aiadventultimate.repository.AgentRepository
 import com.qualiorstudio.aiadventultimate.repository.AgentRepositoryImpl
@@ -19,7 +19,7 @@ class AgentViewModel(
     private val deepSeekApiKey: String? = null
 ) : ViewModel() {
     private val repository = agentRepository ?: AgentRepositoryImpl()
-    private var deepSeek: DeepSeek? = null
+    private var ollamaChat: OllamaChat? = null
     
     private val _agents = MutableStateFlow<List<Agent>>(emptyList())
     val agents: StateFlow<List<Agent>> = _agents.asStateFlow()
@@ -32,13 +32,11 @@ class AgentViewModel(
     
     init {
         loadAgents()
-        if (deepSeekApiKey != null) {
-            deepSeek = DeepSeek(apiKey = deepSeekApiKey)
-        }
+        ollamaChat = OllamaChat()
     }
     
     fun setDeepSeekApiKey(apiKey: String) {
-        deepSeek = DeepSeek(apiKey = apiKey)
+        ollamaChat = OllamaChat()
     }
     
     private fun loadAgents() {
@@ -62,8 +60,9 @@ class AgentViewModel(
     }
     
     suspend fun generateSystemPrompt(role: String): String {
-        if (deepSeek == null) {
-            throw Exception("DeepSeek API ключ не установлен. Пожалуйста, установите API ключ в настройках.")
+        val currentOllama = ollamaChat
+        if (currentOllama == null) {
+            throw Exception("LLM не настроен.")
         }
         
         _isGeneratingPrompt.value = true
@@ -94,7 +93,7 @@ class AgentViewModel(
                 DeepSeekMessage(role = "user", content = prompt)
             )
             
-            val response = deepSeek!!.sendMessage(messages, null, temperature = 0.7, maxTokens = 2000)
+            val response = currentOllama.sendMessage(messages, null, temperature = 0.7, maxTokens = 2000)
             response.choices.firstOrNull()?.message?.content?.trim()
                 ?: throw Exception("Не удалось сгенерировать системный промпт")
         } catch (e: Exception) {

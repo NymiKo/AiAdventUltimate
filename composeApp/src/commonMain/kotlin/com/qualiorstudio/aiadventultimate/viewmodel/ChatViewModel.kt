@@ -4,12 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.qualiorstudio.aiadventultimate.ai.AIAgent
 import com.qualiorstudio.aiadventultimate.ai.RAGService
-import com.qualiorstudio.aiadventultimate.api.DeepSeek
 import com.qualiorstudio.aiadventultimate.api.DeepSeekMessage
 import com.qualiorstudio.aiadventultimate.api.LLMProvider
-import com.qualiorstudio.aiadventultimate.api.DeepSeekLLMProvider
-import com.qualiorstudio.aiadventultimate.api.LMStudioLLMProvider
-import com.qualiorstudio.aiadventultimate.api.LMStudio
+import com.qualiorstudio.aiadventultimate.api.OllamaLLMProvider
+import com.qualiorstudio.aiadventultimate.api.OllamaChat
 import com.qualiorstudio.aiadventultimate.model.Agent
 import com.qualiorstudio.aiadventultimate.model.AgentConnection
 import com.qualiorstudio.aiadventultimate.model.Chat
@@ -50,7 +48,6 @@ class ChatViewModel(
     private val voiceOutputService = createVoiceOutputService()
     private val mcpManager = createMCPServerManager()
     
-    private var deepSeek: DeepSeek? = null
     private var llmProvider: LLMProvider? = null
     private var ragService: RAGService? = null
     private val agentInstances = mutableMapOf<String, AIAgent>()
@@ -118,8 +115,8 @@ class ChatViewModel(
     
     private fun updateTaskBreakdownService(projectName: String?) {
         val provider = llmProvider
-        if (provider is DeepSeekLLMProvider && mcpManager != null) {
-            taskBreakdownService = TaskBreakdownService(provider.deepSeek, mcpManager, projectName)
+        if (provider != null && mcpManager != null) {
+            taskBreakdownService = TaskBreakdownService(provider, mcpManager, projectName)
             println("=== TaskBreakdownService обновлен ===")
             println("projectName: $projectName")
             println("llmProvider: ${provider != null}")
@@ -127,9 +124,6 @@ class ChatViewModel(
         } else {
             taskBreakdownService = null
             println("⚠️ TaskBreakdownService не создан: llmProvider=${provider != null}, mcpManager=${mcpManager != null}")
-            if (provider !is DeepSeekLLMProvider) {
-                println("  Причина: TaskBreakdownService работает только с DeepSeek")
-            }
         }
     }
     
@@ -182,46 +176,31 @@ AGENT_ID: <id_агента>
         // Проверяем, нужно ли пересоздавать базовые сервисы
         val needsRecreation = llmProvider == null || 
             ragService == null ||
-            lastApiKey != settings.deepSeekApiKey ||
-            lastLmStudioUrl != settings.lmStudioBaseUrl ||
             lastTopK != settings.ragTopK ||
             lastRerankMinScore != settings.rerankMinScore ||
             lastRerankedRetentionRatio != settings.rerankedRetentionRatio ||
-            lastMaxIterations != settings.maxIterations ||
-            lastUseLocalLLM != settings.useLocalLLM ||
-            lastLocalLLMModel != settings.localLLMModel
+            lastMaxIterations != settings.maxIterations
         
         if (needsRecreation) {
             // Закрываем старые сервисы
             agentInstances.values.forEach { it.close() }
             ragService?.close()
-            deepSeek = null
             llmProvider = null
             agentInstances.clear()
             
             // Сохраняем текущие настройки
-            lastApiKey = settings.deepSeekApiKey
-            lastLmStudioUrl = settings.lmStudioBaseUrl
             lastTopK = settings.ragTopK
             lastRerankMinScore = settings.rerankMinScore
             lastRerankedRetentionRatio = settings.rerankedRetentionRatio
             lastMaxIterations = settings.maxIterations
-            lastUseLocalLLM = settings.useLocalLLM
-            lastLocalLLMModel = settings.localLLMModel
             
             // Создаем LLM провайдер
-            if (settings.useLocalLLM && settings.localLLMModel != null) {
-                val lmStudio = LMStudio(baseUrl = settings.lmStudioBaseUrl, defaultModel = settings.localLLMModel)
-                llmProvider = LMStudioLLMProvider(lmStudio, settings.localLLMModel)
-                println("=== Используется локальная LLM: ${settings.localLLMModel} ===")
-            } else {
-                deepSeek = DeepSeek(apiKey = settings.deepSeekApiKey)
-                llmProvider = DeepSeekLLMProvider(deepSeek!!)
-                println("=== Используется облачная LLM (DeepSeek) ===")
-            }
+            val ollamaChat = OllamaChat()
+            llmProvider = OllamaLLMProvider(ollamaChat)
+            println("=== Используется Ollama LLM ===")
             
             ragService = RAGService(
-                lmStudioBaseUrl = settings.lmStudioBaseUrl,
+                lmStudioBaseUrl = "http://38.180.222.56:11434",
                 topK = settings.ragTopK,
                 rerankMinScore = settings.rerankMinScore,
                 rerankedRetentionRatio = settings.rerankedRetentionRatio
@@ -294,7 +273,7 @@ Example: If the user asks "What open PRs does this project have?", you should im
             TaskBreakdownTools(
                 taskBreakdownService = it,
                 onProgressMessage = { message -> addProgressMessage(message) },
-                deepSeek = if (currentLLMProvider is DeepSeekLLMProvider) currentLLMProvider.deepSeek else null,
+                deepSeek = null,
                 ragService = ragService,
                 mcpManager = mcpManager,
                 projectTools = projectTools
@@ -552,20 +531,15 @@ Example: If the user asks "What open PRs does this project have?", you should im
                     }
                     
                     val currentLLMProvider = llmProvider ?: run {
-                        if (settings.useLocalLLM && settings.localLLMModel != null) {
-                            val lmStudio = LMStudio(baseUrl = settings.lmStudioBaseUrl, defaultModel = settings.localLLMModel)
-                            LMStudioLLMProvider(lmStudio, settings.localLLMModel)
-                        } else {
-                            val ds = DeepSeek(apiKey = settings.deepSeekApiKey)
-                            DeepSeekLLMProvider(ds)
-                        }
+                        val ollamaChat = OllamaChat()
+                        OllamaLLMProvider(ollamaChat)
                     }
                     
                     val taskBreakdownTools = taskBreakdownService?.let {
                         TaskBreakdownTools(
                             taskBreakdownService = it,
                             onProgressMessage = { message -> addProgressMessage(message) },
-                            deepSeek = if (currentLLMProvider is DeepSeekLLMProvider) currentLLMProvider.deepSeek else null,
+                            deepSeek = null,
                             ragService = ragService,
                             mcpManager = mcpManager,
                             projectTools = projectTools
@@ -983,13 +957,8 @@ ${if (query.isNotBlank()) {
                 """.trimIndent()
                 
                 val currentLLMProvider = llmProvider ?: run {
-                    if (settings.useLocalLLM && settings.localLLMModel != null) {
-                        val lmStudio = LMStudio(baseUrl = settings.lmStudioBaseUrl, defaultModel = settings.localLLMModel)
-                        LMStudioLLMProvider(lmStudio, settings.localLLMModel)
-                    } else {
-                        val ds = DeepSeek(apiKey = settings.deepSeekApiKey)
-                        DeepSeekLLMProvider(ds)
-                    }
+                    val ollamaChat = OllamaChat()
+                    OllamaLLMProvider(ollamaChat)
                 }
                 
                 val defaultAgent = AIAgent(

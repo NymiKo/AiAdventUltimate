@@ -1,7 +1,7 @@
 package com.qualiorstudio.aiadventultimate.service
 
-import com.qualiorstudio.aiadventultimate.api.DeepSeek
 import com.qualiorstudio.aiadventultimate.api.DeepSeekMessage
+import com.qualiorstudio.aiadventultimate.api.LLMProvider
 import com.qualiorstudio.aiadventultimate.mcp.MCPServerManager
 import com.qualiorstudio.aiadventultimate.storage.TodoistProjectStorage
 import com.qualiorstudio.aiadventultimate.storage.getTodoistProjectsFilePath
@@ -24,7 +24,7 @@ data class TaskBreakdown(
 )
 
 class TaskBreakdownService(
-    private val deepSeek: DeepSeek,
+    private val llmProvider: LLMProvider?,
     private val mcpManager: MCPServerManager,
     val projectName: String? = null
 ) {
@@ -156,7 +156,8 @@ $userMessage
             """.trimIndent())
         )
         
-        val response = deepSeek.sendMessage(messages, null, temperature = 0.3, maxTokens = 4000)
+        val provider = llmProvider ?: throw Exception("LLMProvider не доступен")
+        val response = provider.sendMessage(messages, null, temperature = 0.3, maxTokens = 4000)
         val responseText = response.choices.firstOrNull()?.message?.content?.trim() ?: 
             throw Exception("Не удалось получить ответ от LLM")
         

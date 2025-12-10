@@ -2,7 +2,7 @@ package com.qualiorstudio.aiadventultimate.ai
 
 import com.qualiorstudio.aiadventultimate.api.DeepSeekFunction
 import com.qualiorstudio.aiadventultimate.api.DeepSeekTool
-import com.qualiorstudio.aiadventultimate.api.DeepSeek
+import com.qualiorstudio.aiadventultimate.api.LLMProvider
 import com.qualiorstudio.aiadventultimate.api.DeepSeekMessage
 import com.qualiorstudio.aiadventultimate.service.TaskBreakdownService
 import com.qualiorstudio.aiadventultimate.ai.RAGService
@@ -13,7 +13,7 @@ import kotlinx.serialization.Serializable
 class TaskBreakdownTools(
     private val taskBreakdownService: TaskBreakdownService?,
     private val onProgressMessage: ((String) -> Unit)? = null,
-    private val deepSeek: DeepSeek? = null,
+    private val deepSeek: LLMProvider? = null,
     private val ragService: RAGService? = null,
     private val mcpManager: MCPServerManager? = null,
     private val projectTools: ProjectTools? = null
@@ -34,7 +34,7 @@ class TaskBreakdownTools(
             tools.add(executeTasksTool)
             println("✓ Инструмент execute_tasks добавлен в список доступных инструментов")
         } else {
-            println("⚠️ Инструмент execute_tasks НЕ добавлен: deepSeek=${deepSeek != null}, mcpManager=${mcpManager != null}")
+            println("⚠️ Инструмент execute_tasks НЕ добавлен: llmProvider=${deepSeek != null}, mcpManager=${mcpManager != null}")
         }
         
         return tools
@@ -439,7 +439,8 @@ class TaskBreakdownTools(
                 var finalResponse = ""
                 
                 while (iterationCount < maxToolCallIterations) {
-                    val response = deepSeek.sendMessage(currentMessages, availableTools.ifEmpty { null }, temperature = 0.7, maxTokens = 8000)
+                    val response = deepSeek?.sendMessage(currentMessages, availableTools.ifEmpty { null }, temperature = 0.7, maxTokens = 8000)
+                        ?: break
                     val choice = response.choices.firstOrNull()
                     
                     if (choice == null) {

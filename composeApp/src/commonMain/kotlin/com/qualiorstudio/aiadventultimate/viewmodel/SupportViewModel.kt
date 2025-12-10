@@ -2,8 +2,8 @@ package com.qualiorstudio.aiadventultimate.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.qualiorstudio.aiadventultimate.api.DeepSeek
 import com.qualiorstudio.aiadventultimate.api.DeepSeekMessage
+import com.qualiorstudio.aiadventultimate.api.OllamaChat
 import com.qualiorstudio.aiadventultimate.model.ChatMessage
 import com.qualiorstudio.aiadventultimate.model.Ticket
 import com.qualiorstudio.aiadventultimate.service.CRMService
@@ -27,22 +27,10 @@ class SupportViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
     
-    private var deepSeek: DeepSeek? = null
-    private var lastApiKey: String? = null
+    private var ollamaChat: OllamaChat? = null
     
     init {
-        viewModelScope.launch {
-            settingsViewModel.settings.collect { settings ->
-                if (settings.deepSeekApiKey != lastApiKey) {
-                    lastApiKey = settings.deepSeekApiKey
-                    if (settings.deepSeekApiKey.isNotBlank()) {
-                        deepSeek = DeepSeek(apiKey = settings.deepSeekApiKey)
-                    } else {
-                        deepSeek = null
-                    }
-                }
-            }
-        }
+        ollamaChat = OllamaChat()
     }
     
     fun clearChat() {
@@ -85,9 +73,9 @@ class SupportViewModel(
     }
     
     private suspend fun generateSupportResponse(userQuestion: String): String {
-        val currentDeepSeek = deepSeek
-        if (currentDeepSeek == null) {
-            return "Ошибка: API ключ DeepSeek не настроен. Пожалуйста, настройте API ключ в настройках приложения."
+        val currentOllama = ollamaChat
+        if (currentOllama == null) {
+            return "Ошибка: LLM не настроен."
         }
         
         val relevantTickets = crmService.searchTickets(userQuestion)
@@ -116,7 +104,7 @@ class SupportViewModel(
             )
         )
         
-        val response = currentDeepSeek.sendMessage(
+        val response = currentOllama.sendMessage(
             messages = messages,
             temperature = 0.3,
             maxTokens = 1500

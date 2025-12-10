@@ -9,22 +9,8 @@ interface LLMProvider {
     ): DeepSeekResponse
 }
 
-class DeepSeekLLMProvider(
-    val deepSeek: DeepSeek
-) : LLMProvider {
-    override suspend fun sendMessage(
-        messages: List<DeepSeekMessage>,
-        tools: List<DeepSeekTool>?,
-        temperature: Double,
-        maxTokens: Int
-    ): DeepSeekResponse {
-        return deepSeek.sendMessage(messages, tools, temperature, maxTokens)
-    }
-}
-
-class LMStudioLLMProvider(
-    private val lmStudio: LMStudio,
-    private val model: String? = null
+class OllamaLLMProvider(
+    private val ollamaChat: OllamaChat
 ) : LLMProvider {
     override suspend fun sendMessage(
         messages: List<DeepSeekMessage>,
@@ -33,9 +19,9 @@ class LMStudioLLMProvider(
         maxTokens: Int
     ): DeepSeekResponse {
         if (tools != null && tools.isNotEmpty()) {
-            println("Warning: LM Studio does not support tool calls, ignoring tools")
+            println("Warning: Ollama does not support tool calls, ignoring tools")
         }
-        return lmStudio.sendMessage(messages, model, temperature, maxTokens)
+        return ollamaChat.sendMessage(messages, tools, temperature, maxTokens)
     }
 }
 

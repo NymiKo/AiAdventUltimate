@@ -14,7 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.qualiorstudio.aiadventultimate.api.DeepSeek
+import com.qualiorstudio.aiadventultimate.api.OllamaChat
+import com.qualiorstudio.aiadventultimate.api.OllamaLLMProvider
 import com.qualiorstudio.aiadventultimate.mcp.MCPServerManager
 import com.qualiorstudio.aiadventultimate.model.Project
 import com.qualiorstudio.aiadventultimate.service.TaskBreakdownService
@@ -204,8 +205,10 @@ fun TodoistTabContent(
         errorMessage = null
         
         return try {
+            val ollamaChat = OllamaChat()
+            val llmProvider = OllamaLLMProvider(ollamaChat)
             val taskBreakdownService = TaskBreakdownService(
-                deepSeek = DeepSeek(apiKey = ""),
+                llmProvider = llmProvider,
                 mcpManager = mcpManager,
                 projectName = currentProject.name
             )

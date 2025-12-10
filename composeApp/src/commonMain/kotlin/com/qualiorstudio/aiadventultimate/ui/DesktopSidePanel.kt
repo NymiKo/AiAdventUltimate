@@ -651,7 +651,7 @@ $diff
                     return@launch
                 }
                 
-                val deepSeek = com.qualiorstudio.aiadventultimate.api.DeepSeek(apiKey = apiKey)
+                val ollamaChat = com.qualiorstudio.aiadventultimate.api.OllamaChat()
                 
                 val messages = listOf(
                     com.qualiorstudio.aiadventultimate.api.DeepSeekMessage(
@@ -664,7 +664,7 @@ $diff
                     )
                 )
                 
-                val response = deepSeek.sendMessage(messages, null, temperature = 0.3, maxTokens = 4000)
+                val response = ollamaChat.sendMessage(messages, null, temperature = 0.3, maxTokens = 4000)
                 val reviewText = response.choices.firstOrNull()?.message?.content ?: "Не удалось получить ответ от AI"
                 
                 println("Review сгенерирован, длина: ${reviewText.length}")
