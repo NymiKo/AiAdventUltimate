@@ -75,21 +75,6 @@ fun SettingsScreen(
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        // Секция API
-        SettingsSection(title = "API настройки") {
-            SettingsTextFieldItem(
-                title = "DeepSeek API ключ",
-                description = "Ключ для доступа к DeepSeek API",
-                icon = Icons.Default.Settings,
-                value = settings.deepSeekApiKey,
-                onValueChange = { viewModel.setDeepSeekApiKey(it) },
-                keyboardType = KeyboardType.Text,
-                isPassword = true
-            )
-        }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
         // Секция локальной LLM
         SettingsSection(title = "Локальная LLM") {
             SettingsSwitchItem(

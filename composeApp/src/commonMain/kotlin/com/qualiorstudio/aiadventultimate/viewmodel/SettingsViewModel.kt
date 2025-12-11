@@ -74,11 +74,6 @@ class SettingsViewModel : ViewModel() {
         saveSettings()
     }
     
-    fun setDeepSeekApiKey(key: String) {
-        _settings.value = _settings.value.copy(deepSeekApiKey = key)
-        saveSettings()
-    }
-    
     fun setTemperature(value: Double) {
         _settings.value = _settings.value.copy(temperature = value.coerceIn(0.0, 2.0))
         saveSettings()

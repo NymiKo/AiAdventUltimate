@@ -52,6 +52,10 @@ class OllamaChat(
             val request = OllamaChatRequest(
                 model = model,
                 messages = ollamaMessages,
+                options = OllamaOptions(
+                    temperature = temperature,
+                    numPredict = maxTokens
+                ),
                 stream = false
             )
 

@@ -80,8 +80,18 @@ class ChatViewModel(
     private val _todoistTasksUpdateTrigger = MutableStateFlow(0L)
     val todoistTasksUpdateTrigger: StateFlow<Long> = _todoistTasksUpdateTrigger.asStateFlow()
     
+    private val _systemPrompt = MutableStateFlow<String?>(null)
+    val systemPrompt: StateFlow<String?> = _systemPrompt.asStateFlow()
+    
     fun triggerTodoistTasksUpdate() {
         _todoistTasksUpdateTrigger.value = System.currentTimeMillis()
+    }
+    
+    fun updateSystemPrompt(prompt: String?) {
+        _systemPrompt.value = prompt
+        viewModelScope.launch {
+            saveChat()
+        }
     }
     
     fun addProgressMessage(text: String) {
@@ -353,8 +363,9 @@ Example: If the user asks "What open PRs does this project have?", you should im
         )
         
         try {
+            val settings = getSettings()
             val response = if (llmProvider != null) {
-                llmProvider!!.sendMessage(messages, null, temperature = 0.3, maxTokens = 100)
+                llmProvider!!.sendMessage(messages, null, temperature = settings.temperature, maxTokens = settings.maxTokens)
             } else {
                 return availableAgents.first()
             }
@@ -405,6 +416,7 @@ Example: If the user asks "What open PRs does this project have?", you should im
             if (chat != null) {
                 currentChatId = chatId
                 _messages.value = chat.messages
+                _systemPrompt.value = chat.systemPrompt
                 conversationHistory.clear()
                 chat.messages.forEach { message ->
                     if (message.isUser) {
@@ -420,6 +432,7 @@ Example: If the user asks "What open PRs does this project have?", you should im
     fun createNewChat() {
         currentChatId = null
         _messages.value = emptyList()
+        _systemPrompt.value = null
         conversationHistory.clear()
     }
     
@@ -438,11 +451,11 @@ Example: If the user asks "What open PRs does this project have?", you should im
         if (messages.isEmpty()) return
         
         val chatId = currentChatId ?: UUID.randomUUID().toString()
+        val existingChat = repository.getChatById(chatId)
         val title = if (currentChatId == null) {
             val firstUserMessage = messages.firstOrNull { it.isUser }?.text ?: "Новый чат"
             generateChatTitle(firstUserMessage)
         } else {
-            val existingChat = repository.getChatById(chatId)
             existingChat?.title ?: "Новый чат"
         }
         
@@ -450,6 +463,8 @@ Example: If the user asks "What open PRs does this project have?", you should im
             id = chatId,
             title = title,
             messages = messages,
+            systemPrompt = _systemPrompt.value ?: existingChat?.systemPrompt,
+            createdAt = existingChat?.createdAt ?: currentTimeMillis(),
             updatedAt = currentTimeMillis()
         )
         
@@ -550,6 +565,7 @@ Example: If the user asks "What open PRs does this project have?", you should im
                         llmProvider = currentLLMProvider,
                         ragService = ragService,
                         maxIterations = settings.maxIterations,
+                        customSystemPrompt = _systemPrompt.value,
                         mcpServerManager = mcpManager,
                         projectTools = projectTools,
                         taskBreakdownTools = taskBreakdownTools,

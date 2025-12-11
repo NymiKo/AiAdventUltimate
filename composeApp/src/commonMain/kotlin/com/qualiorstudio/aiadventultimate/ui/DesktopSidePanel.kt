@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
@@ -23,6 +25,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Help
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -52,7 +55,8 @@ enum class SidePanelTab {
     MCP_SERVERS,
     PULL_REQUESTS,
     SUPPORT,
-    TODOIST
+    TODOIST,
+    SYSTEM_PROMPT
 }
 
 @Composable
@@ -167,6 +171,14 @@ fun DesktopSidePanel(
                     },
                     contentDescription = "Todoist"
                 )
+                TabIconButton(
+                    icon = Icons.Default.Edit,
+                    isSelected = selectedTab == SidePanelTab.SYSTEM_PROMPT,
+                    onClick = { 
+                        selectedTab = if (selectedTab == SidePanelTab.SYSTEM_PROMPT) null else SidePanelTab.SYSTEM_PROMPT
+                    },
+                    contentDescription = "Системный промпт"
+                )
             }
             
             Column(
@@ -222,6 +234,11 @@ fun DesktopSidePanel(
                         com.qualiorstudio.aiadventultimate.ui.TodoistTabContent(
                             currentProject = currentProject,
                             mcpManager = mcpManager,
+                            chatViewModel = chatViewModel
+                        )
+                    }
+                    SidePanelTab.SYSTEM_PROMPT -> {
+                        SystemPromptTabContent(
                             chatViewModel = chatViewModel
                         )
                     }
@@ -643,14 +660,6 @@ $diff
 Будь конструктивным и конкретным в своих замечаниях.
                 """.trimIndent()
                 
-                val apiKey = settingsViewModel?.settings?.value?.deepSeekApiKey ?: ""
-                
-                if (apiKey.isBlank()) {
-                    println("Ошибка: API ключ DeepSeek не настроен")
-                    isReviewing = false
-                    return@launch
-                }
-                
                 val ollamaChat = com.qualiorstudio.aiadventultimate.api.OllamaChat()
                 
                 val messages = listOf(
@@ -849,6 +858,97 @@ fun SupportTabContent(
                     viewModel = supportViewModel,
                     modifier = Modifier.fillMaxSize()
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun SystemPromptTabContent(
+    chatViewModel: com.qualiorstudio.aiadventultimate.viewmodel.ChatViewModel?
+) {
+    val systemPrompt by (chatViewModel?.systemPrompt ?: kotlinx.coroutines.flow.MutableStateFlow<String?>(null)).collectAsState()
+    var promptText by remember(systemPrompt) { mutableStateOf(systemPrompt ?: "") }
+    val coroutineScope = rememberCoroutineScope()
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "Системный промпт",
+            style = MaterialTheme.typography.titleLarge
+        )
+        
+        Text(
+            text = "Настройте системный промпт для текущего чата. Этот промпт определяет поведение AI ассистента.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        
+        OutlinedTextField(
+            value = promptText,
+            onValueChange = { promptText = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            label = { Text("Системный промпт") },
+            placeholder = { Text("Введите системный промпт...") },
+            minLines = 10,
+            maxLines = 20,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+            )
+        )
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = {
+                    coroutineScope.launch {
+                        chatViewModel?.updateSystemPrompt(if (promptText.isBlank()) null else promptText)
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Сохранить")
+            }
+            
+            OutlinedButton(
+                onClick = {
+                    promptText = ""
+                    coroutineScope.launch {
+                        chatViewModel?.updateSystemPrompt(null)
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Очистить")
+            }
+        }
+        
+        if (systemPrompt != null && systemPrompt!!.isNotBlank()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp)
+                ) {
+                    Text(
+                        text = "Текущий промпт сохранен",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
             }
         }
     }

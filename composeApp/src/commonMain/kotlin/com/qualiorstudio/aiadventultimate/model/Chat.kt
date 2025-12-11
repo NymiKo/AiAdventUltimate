@@ -8,6 +8,7 @@ data class Chat(
     val id: String,
     val title: String,
     val messages: List<ChatMessage>,
+    val systemPrompt: String? = null,
     val createdAt: Long = currentTimeMillis(),
     val updatedAt: Long = currentTimeMillis()
 )

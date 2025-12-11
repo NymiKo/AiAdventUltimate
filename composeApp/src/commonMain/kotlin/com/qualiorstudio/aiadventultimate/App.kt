@@ -99,7 +99,7 @@ fun ChatScreen(
     mcpServerService: MCPServerService = remember { MCPServerServiceImpl() },
     embeddingViewModel: EmbeddingViewModel = viewModel { EmbeddingViewModel() },
     viewModel: ChatViewModel = viewModel { ChatViewModel(settingsViewModel, chatRepository, connectionRepository, mcpServerRepository, projectRepository, embeddingViewModel) },
-    agentViewModel: AgentViewModel = viewModel { AgentViewModel(deepSeekApiKey = settingsViewModel.settings.value.deepSeekApiKey) }
+    agentViewModel: AgentViewModel = viewModel { AgentViewModel() }
 ) {
     var currentScreen by remember { mutableStateOf("chat") }
     var showChatList by remember { mutableStateOf(false) }
@@ -169,10 +169,6 @@ fun ChatScreen(
         if (currentScreen != "chat" && isDesktopPlatform) {
             showSidePanel = false
         }
-    }
-    
-    LaunchedEffect(settings.deepSeekApiKey) {
-        agentViewModel.setDeepSeekApiKey(settings.deepSeekApiKey)
     }
     
     // Синхронизируем настройки с ChatViewModel

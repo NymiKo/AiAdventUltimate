@@ -10,9 +10,17 @@ data class OllamaMessage(
 )
 
 @Serializable
+data class OllamaOptions(
+    val temperature: Double = 0.3,
+    @SerialName("num_predict")
+    val numPredict: Int = 400
+)
+
+@Serializable
 data class OllamaChatRequest(
     val model: String,
     val messages: List<OllamaMessage>,
+    val options: OllamaOptions? = null,
     val stream: Boolean = false
 )
 

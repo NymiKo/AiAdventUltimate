@@ -8,8 +8,6 @@ data class AppSettings(
     val useRAG: Boolean = true,
     val enableVoiceInput: Boolean = true,
     val enableVoiceOutput: Boolean = true,
-    // API настройки
-    val deepSeekApiKey: String = "sk-b21fe1a6400b4757840a27ebc1a5de2a",
     // Параметры модели
     val temperature: Double = 0.7,
     val maxTokens: Int = 8000,

@@ -15,8 +15,7 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 class AgentViewModel(
-    private val agentRepository: AgentRepository? = null,
-    private val deepSeekApiKey: String? = null
+    private val agentRepository: AgentRepository? = null
 ) : ViewModel() {
     private val repository = agentRepository ?: AgentRepositoryImpl()
     private var ollamaChat: OllamaChat? = null
@@ -35,9 +34,6 @@ class AgentViewModel(
         ollamaChat = OllamaChat()
     }
     
-    fun setDeepSeekApiKey(apiKey: String) {
-        ollamaChat = OllamaChat()
-    }
     
     private fun loadAgents() {
         viewModelScope.launch {
