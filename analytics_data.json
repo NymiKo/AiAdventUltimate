@@ -1,0 +1,229 @@
+{
+  "period": {
+    "start": "2024-01-01T00:00:00Z",
+    "end": "2024-01-31T23:59:59Z",
+    "timezone": "UTC"
+  },
+  "users": {
+    "total": 15420,
+    "active": 8930,
+    "new": 2340,
+    "returning": 6590,
+    "churned": 890,
+    "retention_rate": 0.68,
+    "daily_active_users": {
+      "average": 3420,
+      "peak": 5120,
+      "peak_date": "2024-01-15"
+    }
+  },
+  "sessions": {
+    "total": 89240,
+    "average_duration_minutes": 24.5,
+    "average_sessions_per_user": 5.8,
+    "bounce_rate": 0.23,
+    "sessions_by_day": [
+      {"date": "2024-01-01", "count": 2840, "avg_duration": 22.3},
+      {"date": "2024-01-02", "count": 3120, "avg_duration": 25.1},
+      {"date": "2024-01-03", "count": 2980, "avg_duration": 23.8},
+      {"date": "2024-01-04", "count": 3450, "avg_duration": 26.2},
+      {"date": "2024-01-05", "count": 4120, "avg_duration": 28.5}
+    ]
+  },
+  "errors": {
+    "total": 1240,
+    "unique_types": 23,
+    "by_type": [
+      {
+        "type": "NetworkError",
+        "count": 456,
+        "percentage": 36.8,
+        "first_occurrence": "2024-01-03T14:23:10Z",
+        "last_occurrence": "2024-01-30T18:45:22Z"
+      },
+      {
+        "type": "AuthenticationError",
+        "count": 234,
+        "percentage": 18.9,
+        "first_occurrence": "2024-01-01T09:12:05Z",
+        "last_occurrence": "2024-01-29T16:30:11Z"
+      },
+      {
+        "type": "ValidationError",
+        "count": 189,
+        "percentage": 15.2,
+        "first_occurrence": "2024-01-02T11:20:33Z",
+        "last_occurrence": "2024-01-31T10:15:44Z"
+      },
+      {
+        "type": "DatabaseError",
+        "count": 156,
+        "percentage": 12.6,
+        "first_occurrence": "2024-01-05T08:45:12Z",
+        "last_occurrence": "2024-01-28T14:22:09Z"
+      },
+      {
+        "type": "TimeoutError",
+        "count": 98,
+        "percentage": 7.9,
+        "first_occurrence": "2024-01-07T13:30:45Z",
+        "last_occurrence": "2024-01-27T19:10:33Z"
+      },
+      {
+        "type": "PermissionError",
+        "count": 67,
+        "percentage": 5.4,
+        "first_occurrence": "2024-01-10T15:22:18Z",
+        "last_occurrence": "2024-01-25T11:40:27Z"
+      },
+      {
+        "type": "Other",
+        "count": 40,
+        "percentage": 3.2,
+        "first_occurrence": "2024-01-12T10:15:30Z",
+        "last_occurrence": "2024-01-24T09:25:15Z"
+      }
+    ],
+    "by_severity": {
+      "critical": 12,
+      "high": 89,
+      "medium": 456,
+      "low": 683
+    },
+    "trend": "decreasing",
+    "resolution_time_hours": {
+      "average": 4.2,
+      "median": 2.5,
+      "p95": 12.8
+    }
+  },
+  "features": {
+    "usage": [
+      {
+        "name": "Chat",
+        "usage_count": 45620,
+        "unique_users": 8230,
+        "average_time_seconds": 180,
+        "satisfaction_score": 4.5
+      },
+      {
+        "name": "Voice Input",
+        "usage_count": 23450,
+        "unique_users": 5120,
+        "average_time_seconds": 45,
+        "satisfaction_score": 4.2
+      },
+      {
+        "name": "File Upload",
+        "usage_count": 18920,
+        "unique_users": 3890,
+        "average_time_seconds": 30,
+        "satisfaction_score": 4.0
+      },
+      {
+        "name": "Settings",
+        "usage_count": 12340,
+        "unique_users": 4560,
+        "average_time_seconds": 120,
+        "satisfaction_score": 3.8
+      },
+      {
+        "name": "Analytics",
+        "usage_count": 8920,
+        "unique_users": 2340,
+        "average_time_seconds": 240,
+        "satisfaction_score": 4.3
+      }
+    ],
+    "drop_off_points": [
+      {
+        "screen": "Login",
+        "users_started": 15420,
+        "users_completed": 14230,
+        "drop_off_rate": 0.077
+      },
+      {
+        "screen": "Onboarding",
+        "users_started": 14230,
+        "users_completed": 12890,
+        "drop_off_rate": 0.094
+      },
+      {
+        "screen": "Main Screen",
+        "users_started": 12890,
+        "users_completed": 11240,
+        "drop_off_rate": 0.128
+      },
+      {
+        "screen": "First Feature Use",
+        "users_started": 11240,
+        "users_completed": 8930,
+        "drop_off_rate": 0.206
+      }
+    ]
+  },
+  "platforms": {
+    "android": {
+      "users": 8230,
+      "sessions": 45620,
+      "crash_rate": 0.012,
+      "average_rating": 4.3
+    },
+    "ios": {
+      "users": 5120,
+      "sessions": 28940,
+      "crash_rate": 0.008,
+      "average_rating": 4.5
+    },
+    "desktop": {
+      "users": 2070,
+      "sessions": 14680,
+      "crash_rate": 0.005,
+      "average_rating": 4.4
+    }
+  },
+  "geography": {
+    "top_countries": [
+      {"country": "United States", "users": 5230, "percentage": 33.9},
+      {"country": "United Kingdom", "users": 2340, "percentage": 15.2},
+      {"country": "Germany", "users": 1890, "percentage": 12.3},
+      {"country": "France", "users": 1450, "percentage": 9.4},
+      {"country": "Canada", "users": 1230, "percentage": 8.0},
+      {"country": "Other", "users": 3280, "percentage": 21.2}
+    ]
+  },
+  "performance": {
+    "api_response_time_ms": {
+      "average": 245,
+      "p50": 180,
+      "p95": 520,
+      "p99": 890
+    },
+    "app_startup_time_ms": {
+      "average": 1200,
+      "p50": 980,
+      "p95": 2100,
+      "p99": 3200
+    },
+    "screen_load_time_ms": {
+      "average": 450,
+      "p50": 320,
+      "p95": 890,
+      "p99": 1450
+    }
+  },
+  "conversions": {
+    "signup_to_first_action": 0.58,
+    "first_action_to_paid": 0.12,
+    "trial_to_paid": 0.34,
+    "free_to_paid": 0.08
+  },
+  "engagement": {
+    "daily_active_users_percentage": 0.58,
+    "weekly_active_users_percentage": 0.78,
+    "monthly_active_users_percentage": 0.92,
+    "messages_per_user": 12.5,
+    "features_used_per_user": 3.2
+  }
+}
+

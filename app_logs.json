@@ -1,0 +1,342 @@
+{
+  "logs": [
+    {
+      "timestamp": "2024-01-15T08:23:15.123Z",
+      "level": "INFO",
+      "component": "AuthenticationService",
+      "message": "User login successful",
+      "userId": "user_12345",
+      "sessionId": "session_abc123",
+      "metadata": {
+        "ip": "192.168.1.100",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "platform": "desktop"
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:23:18.456Z",
+      "level": "DEBUG",
+      "component": "DatabaseService",
+      "message": "Query executed successfully",
+      "query": "SELECT * FROM users WHERE id = ?",
+      "executionTimeMs": 12,
+      "metadata": {
+        "table": "users",
+        "rowsAffected": 1
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:24:22.789Z",
+      "level": "ERROR",
+      "component": "PaymentService",
+      "message": "Payment processing failed",
+      "error": {
+        "type": "NetworkError",
+        "code": "PAYMENT_TIMEOUT",
+        "message": "Connection timeout after 30 seconds",
+        "stackTrace": "at PaymentService.processPayment(PaymentService.java:145)\nat PaymentController.handlePayment(PaymentController.java:67)"
+      },
+      "userId": "user_12345",
+      "transactionId": "txn_xyz789",
+      "metadata": {
+        "amount": 99.99,
+        "currency": "USD",
+        "paymentMethod": "credit_card"
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:25:10.234Z",
+      "level": "WARNING",
+      "component": "CacheService",
+      "message": "Cache miss rate above threshold",
+      "cacheMissRate": 0.35,
+      "threshold": 0.25,
+      "metadata": {
+        "cacheSize": 1024,
+        "cacheHits": 2340,
+        "cacheMisses": 1260
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:26:45.567Z",
+      "level": "INFO",
+      "component": "ChatService",
+      "message": "Message sent successfully",
+      "userId": "user_12345",
+      "messageId": "msg_456789",
+      "metadata": {
+        "messageLength": 156,
+        "recipientId": "user_67890",
+        "messageType": "text"
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:27:12.890Z",
+      "level": "ERROR",
+      "component": "FileUploadService",
+      "message": "File upload failed",
+      "error": {
+        "type": "ValidationError",
+        "code": "FILE_TOO_LARGE",
+        "message": "File size exceeds maximum allowed size of 10MB",
+        "stackTrace": "at FileUploadService.validateFile(FileUploadService.java:89)\nat FileUploadController.uploadFile(FileUploadController.java:123)"
+      },
+      "userId": "user_12345",
+      "metadata": {
+        "fileName": "large_document.pdf",
+        "fileSize": 15728640,
+        "maxSize": 10485760,
+        "fileType": "application/pdf"
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:28:33.123Z",
+      "level": "INFO",
+      "component": "AnalyticsService",
+      "message": "Event tracked",
+      "eventName": "feature_used",
+      "userId": "user_12345",
+      "metadata": {
+        "feature": "voice_input",
+        "duration": 45,
+        "success": true
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:29:15.456Z",
+      "level": "ERROR",
+      "component": "DatabaseService",
+      "message": "Database connection pool exhausted",
+      "error": {
+        "type": "DatabaseError",
+        "code": "CONNECTION_POOL_EXHAUSTED",
+        "message": "No available connections in pool",
+        "stackTrace": "at DatabaseService.getConnection(DatabaseService.java:234)\nat UserRepository.findById(UserRepository.java:45)"
+      },
+      "metadata": {
+        "poolSize": 20,
+        "activeConnections": 20,
+        "waitingRequests": 5
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:30:22.789Z",
+      "level": "WARNING",
+      "component": "SecurityService",
+      "message": "Suspicious activity detected",
+      "userId": "user_99999",
+      "metadata": {
+        "activityType": "multiple_failed_logins",
+        "failedAttempts": 5,
+        "ip": "192.168.1.200",
+        "action": "account_locked"
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:31:45.234Z",
+      "level": "INFO",
+      "component": "NotificationService",
+      "message": "Push notification sent",
+      "userId": "user_12345",
+      "notificationId": "notif_789012",
+      "metadata": {
+        "type": "message_received",
+        "platform": "ios",
+        "status": "delivered"
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:32:10.567Z",
+      "level": "ERROR",
+      "component": "EmailService",
+      "message": "Email sending failed",
+      "error": {
+        "type": "NetworkError",
+        "code": "SMTP_CONNECTION_FAILED",
+        "message": "Unable to connect to SMTP server",
+        "stackTrace": "at EmailService.sendEmail(EmailService.java:178)\nat NotificationService.sendWelcomeEmail(NotificationService.java:234)"
+      },
+      "userId": "user_11111",
+      "metadata": {
+        "email": "user@example.com",
+        "template": "welcome_email",
+        "retryCount": 3
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:33:22.890Z",
+      "level": "DEBUG",
+      "component": "CacheService",
+      "message": "Cache entry expired",
+      "key": "user_profile_12345",
+      "metadata": {
+        "ttl": 3600,
+        "age": 3601
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:34:15.123Z",
+      "level": "INFO",
+      "component": "VoiceService",
+      "message": "Voice recognition completed",
+      "userId": "user_12345",
+      "metadata": {
+        "duration": 3.5,
+        "confidence": 0.92,
+        "language": "en-US",
+        "wordsRecognized": 12
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:35:45.456Z",
+      "level": "ERROR",
+      "component": "APIService",
+      "message": "External API call failed",
+      "error": {
+        "type": "NetworkError",
+        "code": "HTTP_500",
+        "message": "Internal server error from external API",
+        "stackTrace": "at APIService.callExternalAPI(APIService.java:267)\nat IntegrationService.syncData(IntegrationService.java:145)"
+      },
+      "metadata": {
+        "apiEndpoint": "https://api.external.com/v1/data",
+        "method": "POST",
+        "statusCode": 500,
+        "retryCount": 2
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:36:22.789Z",
+      "level": "WARNING",
+      "component": "PerformanceMonitor",
+      "message": "Slow query detected",
+      "query": "SELECT * FROM orders WHERE created_at > ? ORDER BY created_at DESC",
+      "executionTimeMs": 3450,
+      "threshold": 1000,
+      "metadata": {
+        "table": "orders",
+        "rowsScanned": 125000,
+        "rowsReturned": 50
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:37:10.234Z",
+      "level": "INFO",
+      "component": "SessionService",
+      "message": "User session expired",
+      "userId": "user_12345",
+      "sessionId": "session_abc123",
+      "metadata": {
+        "duration": 3600,
+        "reason": "timeout"
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:38:33.567Z",
+      "level": "ERROR",
+      "component": "StorageService",
+      "message": "File storage quota exceeded",
+      "error": {
+        "type": "StorageError",
+        "code": "QUOTA_EXCEEDED",
+        "message": "User storage quota of 5GB exceeded",
+        "stackTrace": "at StorageService.uploadFile(StorageService.java:234)\nat FileController.handleUpload(FileController.java:89)"
+      },
+      "userId": "user_12345",
+      "metadata": {
+        "usedSpace": 5368709120,
+        "quota": 5368709120,
+        "fileSize": 10485760
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:39:15.890Z",
+      "level": "INFO",
+      "component": "AnalyticsService",
+      "message": "User action tracked",
+      "eventName": "screen_view",
+      "userId": "user_12345",
+      "metadata": {
+        "screen": "settings",
+        "previousScreen": "main",
+        "duration": 120
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:40:22.123Z",
+      "level": "WARNING",
+      "component": "RateLimiter",
+      "message": "Rate limit exceeded",
+      "userId": "user_99999",
+      "metadata": {
+        "endpoint": "/api/chat/send",
+        "limit": 100,
+        "requests": 150,
+        "window": "1 minute",
+        "action": "request_throttled"
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:41:45.456Z",
+      "level": "ERROR",
+      "component": "AuthenticationService",
+      "message": "Invalid authentication token",
+      "error": {
+        "type": "AuthenticationError",
+        "code": "INVALID_TOKEN",
+        "message": "Token signature verification failed",
+        "stackTrace": "at AuthenticationService.validateToken(AuthenticationService.java:178)\nat AuthMiddleware.authenticate(AuthMiddleware.java:67)"
+      },
+      "userId": null,
+      "metadata": {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+        "reason": "expired"
+      }
+    },
+    {
+      "timestamp": "2024-01-15T08:42:10.789Z",
+      "level": "INFO",
+      "component": "BackupService",
+      "message": "Database backup completed",
+      "metadata": {
+        "backupSize": 2147483648,
+        "duration": 1800,
+        "status": "success"
+      }
+    }
+  ],
+  "summary": {
+    "total_logs": 20,
+    "by_level": {
+      "INFO": 8,
+      "ERROR": 7,
+      "WARNING": 3,
+      "DEBUG": 2
+    },
+    "by_component": {
+      "AuthenticationService": 2,
+      "DatabaseService": 2,
+      "PaymentService": 1,
+      "CacheService": 2,
+      "ChatService": 1,
+      "FileUploadService": 1,
+      "AnalyticsService": 2,
+      "SecurityService": 1,
+      "NotificationService": 1,
+      "EmailService": 1,
+      "VoiceService": 1,
+      "APIService": 1,
+      "PerformanceMonitor": 1,
+      "SessionService": 1,
+      "StorageService": 1,
+      "RateLimiter": 1,
+      "BackupService": 1
+    },
+    "time_range": {
+      "start": "2024-01-15T08:23:15.123Z",
+      "end": "2024-01-15T08:42:10.789Z",
+      "duration_minutes": 18.93
+    }
+  }
+}
+

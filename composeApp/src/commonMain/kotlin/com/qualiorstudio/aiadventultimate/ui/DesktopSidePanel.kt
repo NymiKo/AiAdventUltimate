@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Help
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -49,6 +50,11 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.serialization.json.*
 import kotlinx.serialization.Serializable
+import com.qualiorstudio.aiadventultimate.api.LMStudio
+import com.qualiorstudio.aiadventultimate.api.DeepSeekMessage
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.UploadFile
+import java.io.File
 
 enum class SidePanelTab {
     AGENTS,
@@ -56,7 +62,8 @@ enum class SidePanelTab {
     PULL_REQUESTS,
     SUPPORT,
     TODOIST,
-    SYSTEM_PROMPT
+    SYSTEM_PROMPT,
+    ANALYTICS
 }
 
 @Composable
@@ -179,6 +186,14 @@ fun DesktopSidePanel(
                     },
                     contentDescription = "Системный промпт"
                 )
+                TabIconButton(
+                    icon = Icons.Default.Assessment,
+                    isSelected = selectedTab == SidePanelTab.ANALYTICS,
+                    onClick = { 
+                        selectedTab = if (selectedTab == SidePanelTab.ANALYTICS) null else SidePanelTab.ANALYTICS
+                    },
+                    contentDescription = "Аналитика"
+                )
             }
             
             Column(
@@ -241,6 +256,9 @@ fun DesktopSidePanel(
                         SystemPromptTabContent(
                             chatViewModel = chatViewModel
                         )
+                    }
+                    SidePanelTab.ANALYTICS -> {
+                        AnalyticsTabContent()
                     }
                     null -> {
                         Box(
@@ -947,6 +965,262 @@ fun SystemPromptTabContent(
                         text = "Текущий промпт сохранен",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+expect fun JsonFilePickerButton(
+    onFileSelected: (String?) -> Unit,
+    enabled: Boolean
+)
+
+@Composable
+fun AnalyticsTabContent() {
+    var jsonData by remember { mutableStateOf<String?>(null) }
+    var question by remember { mutableStateOf("") }
+    var answer by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+    val lmStudio = remember { LMStudio() }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "Аналитика данных",
+            style = MaterialTheme.typography.titleLarge
+        )
+        
+        Text(
+            text = "Загрузите JSON файл с аналитическими данными или логами проекта и задайте вопросы по ним.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        
+        JsonFilePickerButton(
+            onFileSelected = { filePath ->
+                if (filePath != null) {
+                    try {
+                        val file = File(filePath)
+                        val fileSize = file.length()
+                        val maxSize = 10 * 1024 * 1024
+                        
+                        if (fileSize > maxSize) {
+                            errorMessage = "Файл слишком большой (${fileSize / 1024 / 1024} МБ). Максимальный размер: ${maxSize / 1024 / 1024} МБ"
+                            jsonData = null
+                            return@JsonFilePickerButton
+                        }
+                        
+                        val content = file.readText()
+                        jsonData = content
+                        errorMessage = null
+                        answer = null
+                    } catch (e: Exception) {
+                        errorMessage = "Ошибка при чтении файла: ${e.message}"
+                        jsonData = null
+                    }
+                }
+            },
+            enabled = !isLoading
+        )
+        
+        if (jsonData != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Файл загружен",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "Размер данных: ${jsonData!!.length} символов",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            jsonData = null
+                            answer = null
+                            question = ""
+                            errorMessage = null
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Очистить данные"
+                        )
+                    }
+                }
+            }
+        }
+        
+        if (errorMessage != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Text(
+                    text = errorMessage ?: "",
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+        }
+        
+        OutlinedTextField(
+            value = question,
+            onValueChange = { question = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Ваш вопрос") },
+            placeholder = { Text("Например: Какая ошибка происходит чаще всего?") },
+            enabled = !isLoading && jsonData != null,
+            minLines = 2,
+            maxLines = 4,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            trailingIcon = {
+                IconButton(
+                    onClick = {
+                        if (question.isNotBlank() && jsonData != null && !isLoading) {
+                            isLoading = true
+                            errorMessage = null
+                            answer = null
+                            
+                            coroutineScope.launch {
+                                try {
+                                    val dataPreview = if (jsonData!!.length > 50000) {
+                                        jsonData!!.take(50000) + "\n\n... (данные обрезаны, показаны первые 50000 символов)"
+                                    } else {
+                                        jsonData!!
+                                    }
+                                    
+                                    val prompt = """
+Проанализируй следующие JSON данные и ответь на вопрос пользователя, используя ТОЛЬКО факты и числа из предоставленных данных.
+
+JSON данные:
+$dataPreview
+
+Вопрос пользователя: $question
+
+ВАЖНО:
+- Используй ТОЛЬКО конкретные числа, значения и факты из JSON данных выше
+- Выполняй точные расчеты на основе данных (суммы, проценты, средние значения)
+- Указывай точные значения из данных, не используй обобщения типа "много", "мало", "некоторые"
+- Если данных недостаточно для ответа, так и скажи
+- Приводи конкретные примеры из данных (названия, ID, значения)
+- Не делай предположений или выводов, которых нет в данных
+- Форматируй числа с точностью до 2 знаков после запятой, если это проценты или десятичные дроби
+                                    """.trimIndent()
+                                    
+                                    val messages = listOf(
+                                        DeepSeekMessage(
+                                            role = "system",
+                                            content = """Ты точный аналитик данных. Твоя задача - анализировать JSON данные и предоставлять ТОЛЬКО конкретные факты, числа и расчеты из этих данных.
+
+ПРАВИЛА ОТВЕТА:
+1. Используй ТОЛЬКО данные из предоставленного JSON - никаких обобщений или предположений
+2. Всегда приводи точные числа и значения из данных
+3. Выполняй математические расчеты на основе данных (суммы, проценты, средние, максимумы, минимумы)
+4. Указывай конкретные названия, ID, типы из данных
+5. Если вопрос требует сравнения - сравнивай конкретные значения из данных
+6. Если данных недостаточно - так и скажи, не выдумывай
+7. Форматируй ответ структурированно: сначала краткий ответ с числами, затем детали с расчетами
+8. НЕ используй фразы типа "много", "мало", "некоторые", "часто" - всегда указывай точные числа или проценты
+
+Пример хорошего ответа:
+"NetworkError происходит чаще всего: 456 раз (36.8% от всех ошибок). Следующая по частоте - AuthenticationError: 234 раза (18.9%)."
+
+Пример плохого ответа:
+"Часто происходят сетевые ошибки и ошибки аутентификации." - это плохо, нет конкретных чисел."""
+                                        ),
+                                        DeepSeekMessage(
+                                            role = "user",
+                                            content = prompt
+                                        )
+                                    )
+                                    
+                                    val response = lmStudio.sendMessage(
+                                        messages = messages,
+                                        temperature = 0.3,
+                                        maxTokens = 4000
+                                    )
+                                    
+                                    answer = response.choices.firstOrNull()?.message?.content
+                                        ?: "Не удалось получить ответ от модели"
+                                } catch (e: Exception) {
+                                    errorMessage = "Ошибка при запросе к LM Studio: ${e.message}"
+                                    e.printStackTrace()
+                                } finally {
+                                    isLoading = false
+                                }
+                            }
+                        }
+                    },
+                    enabled = !isLoading && jsonData != null && question.isNotBlank()
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Отправить вопрос"
+                        )
+                    }
+                }
+            }
+        )
+        
+        if (answer != null) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                        text = "Ответ:",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Markdown(
+                        content = answer ?: "",
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
