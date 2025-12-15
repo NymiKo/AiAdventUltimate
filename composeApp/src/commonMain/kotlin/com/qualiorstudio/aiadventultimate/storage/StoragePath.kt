@@ -12,3 +12,5 @@ expect fun getMCPServersFilePath(): String
 
 expect fun getTodoistProjectsFilePath(): String
 
+expect fun getPersonalizationFilePath(): String
+

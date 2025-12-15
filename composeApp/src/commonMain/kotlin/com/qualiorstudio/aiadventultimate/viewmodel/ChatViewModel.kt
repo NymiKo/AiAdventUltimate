@@ -38,7 +38,8 @@ class ChatViewModel(
     private val connectionRepository: AgentConnectionRepository? = null,
     private val mcpServerRepository: MCPServerRepository? = null,
     private val projectRepository: com.qualiorstudio.aiadventultimate.repository.ProjectRepository? = null,
-    private val embeddingViewModel: EmbeddingViewModel? = null
+    private val embeddingViewModel: EmbeddingViewModel? = null,
+    private val personalizationViewModel: PersonalizationViewModel? = null
 ) : ViewModel() {
     private val repository = chatRepository ?: ChatRepositoryImpl()
     private val connectionRepo = connectionRepository ?: AgentConnectionRepositoryImpl()
@@ -107,6 +108,19 @@ class ChatViewModel(
                 updateTaskBreakdownService(project?.name)
             }
         }
+        
+        // Обновляем персонализацию при изменении данных
+        personalizationViewModel?.personalization?.let { personalizationFlow ->
+            viewModelScope.launch {
+                personalizationFlow.collect { personalization ->
+                    val personalizationContext = personalization.toSystemPrompt()
+                    coordinatorAgent?.updatePersonalizationContext(personalizationContext)
+                    agentInstances.values.forEach { agent ->
+                        agent.updatePersonalizationContext(personalizationContext)
+                    }
+                }
+            }
+        }
     }
     
     private fun updateTaskBreakdownService(projectName: String?) {
@@ -164,6 +178,10 @@ AGENT_ID: <id_агента>
     """.trimIndent()
     
     private fun getSettings() = settingsViewModel?.settings?.value ?: com.qualiorstudio.aiadventultimate.model.AppSettings()
+    
+    private fun getPersonalizationContext(): String {
+        return personalizationViewModel?.personalization?.value?.toSystemPrompt() ?: ""
+    }
     
     private fun initializeServices() {
         val settings = getSettings()
@@ -287,13 +305,17 @@ Example: If the user asks "What open PRs does this project have?", you should im
                 projectTools = projectTools,
                 taskBreakdownTools = taskBreakdownTools
             )
+            val personalizationContext = getPersonalizationContext()
             newCoordinator.updateProjectContext(currentProjectContext)
+            newCoordinator.updatePersonalizationContext(personalizationContext)
             coordinatorAgent = newCoordinator
         } else if (selectedAgents.isEmpty() || !useCoordinator) {
             coordinatorAgent?.close()
             coordinatorAgent = null
         } else if (coordinatorAgent != null) {
+            val personalizationContext = getPersonalizationContext()
             coordinatorAgent?.updateProjectContext(currentProjectContext)
+            coordinatorAgent?.updatePersonalizationContext(personalizationContext)
         }
         
         // Создаем экземпляры AIAgent для каждого выбранного агента
@@ -321,8 +343,17 @@ Example: If the user asks "What open PRs does this project have?", you should im
                     onTodoistTaskCreated = { triggerTodoistTasksUpdate() },
                     onProgressMessage = { message -> addProgressMessage(message) }
                 )
+                val personalizationContext = getPersonalizationContext()
                 newAgent.updateProjectContext(currentProjectContext)
+                newAgent.updatePersonalizationContext(personalizationContext)
                 agentInstances[agent.id] = newAgent
+            } else {
+                val existingAgent = agentInstances[agent.id]
+                if (existingAgent != null) {
+                    val personalizationContext = getPersonalizationContext()
+                    existingAgent.updateProjectContext(currentProjectContext)
+                    existingAgent.updatePersonalizationContext(personalizationContext)
+                }
             }
         }
     }
@@ -542,6 +573,8 @@ Example: If the user asks "What open PRs does this project have?", you should im
                         onTodoistTaskCreated = { triggerTodoistTasksUpdate() },
                         onProgressMessage = { message -> addProgressMessage(message) }
                     )
+                    val personalizationContext = getPersonalizationContext()
+                    defaultAgent.updatePersonalizationContext(personalizationContext)
                     defaultAgent.initialize()
                     val result = defaultAgent.processMessage(
                         userMessage = text,
@@ -550,10 +583,19 @@ Example: If the user asks "What open PRs does this project have?", you should im
                         temperature = settings.temperature,
                         maxTokens = settings.maxTokens
                     )
+                    println("=== ChatViewModel: ProcessMessage Result ===")
+                    println("Response: ${result.response}")
+                    println("Response length: ${result.response.length}")
+                    println("Response is blank: ${result.response.isBlank()}")
+                    println("Short phrase: ${result.shortPhrase}")
+                    
                     val metricsSuffix = result.variants.firstOrNull()?.metadata?.let {
                         "\n\n[Reranker] $it"
                     } ?: ""
                     val messageText = result.response + metricsSuffix
+                    println("Final message text: $messageText")
+                    println("Final message text length: ${messageText.length}")
+                    
                     val aiMessage = ChatMessage(
                         text = messageText,
                         isUser = false
@@ -950,6 +992,8 @@ ${if (query.isNotBlank()) {
                     mcpServerManager = null,
                     projectTools = null
                 )
+                val personalizationContext = getPersonalizationContext()
+                defaultAgent.updatePersonalizationContext(personalizationContext)
                 defaultAgent.initialize()
                 
                 val userQuery = if (query.isNotBlank()) {
@@ -1176,4 +1220,5 @@ Example: If the user asks "What open PRs does this project have?", you should im
         ragService?.close()
     }
 }
+
 

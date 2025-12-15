@@ -59,6 +59,7 @@ import com.qualiorstudio.aiadventultimate.ui.ProjectScreen
 import com.qualiorstudio.aiadventultimate.viewmodel.AgentViewModel
 import com.qualiorstudio.aiadventultimate.viewmodel.ChatViewModel
 import com.qualiorstudio.aiadventultimate.viewmodel.EmbeddingViewModel
+import com.qualiorstudio.aiadventultimate.viewmodel.PersonalizationViewModel
 import com.qualiorstudio.aiadventultimate.viewmodel.SettingsViewModel
 import com.qualiorstudio.aiadventultimate.voice.createVoiceInputService
 import com.qualiorstudio.aiadventultimate.mcp.createMCPServerManager
@@ -98,7 +99,8 @@ fun ChatScreen(
     projectRepository: com.qualiorstudio.aiadventultimate.repository.ProjectRepository = remember { com.qualiorstudio.aiadventultimate.repository.ProjectRepositoryImpl() },
     mcpServerService: MCPServerService = remember { MCPServerServiceImpl() },
     embeddingViewModel: EmbeddingViewModel = viewModel { EmbeddingViewModel() },
-    viewModel: ChatViewModel = viewModel { ChatViewModel(settingsViewModel, chatRepository, connectionRepository, mcpServerRepository, projectRepository, embeddingViewModel) },
+    personalizationViewModel: PersonalizationViewModel = viewModel { PersonalizationViewModel() },
+    viewModel: ChatViewModel = viewModel { ChatViewModel(settingsViewModel, chatRepository, connectionRepository, mcpServerRepository, projectRepository, embeddingViewModel, personalizationViewModel) },
     agentViewModel: AgentViewModel = viewModel { AgentViewModel(deepSeekApiKey = settingsViewModel.settings.value.deepSeekApiKey) }
 ) {
     var currentScreen by remember { mutableStateOf("chat") }

@@ -59,3 +59,12 @@ actual fun getTodoistProjectsFilePath(): String {
     }
 }
 
+actual fun getPersonalizationFilePath(): String {
+    val dataDir = getDataDirectory()
+    return if (dataDir.isNotEmpty()) {
+        "$dataDir/personalization.json"
+    } else {
+        "personalization.json"
+    }
+}
+

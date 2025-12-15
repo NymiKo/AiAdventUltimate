@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Help
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -52,7 +53,8 @@ enum class SidePanelTab {
     MCP_SERVERS,
     PULL_REQUESTS,
     SUPPORT,
-    TODOIST
+    TODOIST,
+    PERSONALIZATION
 }
 
 @Composable
@@ -167,6 +169,14 @@ fun DesktopSidePanel(
                     },
                     contentDescription = "Todoist"
                 )
+                TabIconButton(
+                    icon = Icons.Default.Face,
+                    isSelected = selectedTab == SidePanelTab.PERSONALIZATION,
+                    onClick = { 
+                        selectedTab = if (selectedTab == SidePanelTab.PERSONALIZATION) null else SidePanelTab.PERSONALIZATION
+                    },
+                    contentDescription = "Персонализация"
+                )
             }
             
             Column(
@@ -224,6 +234,9 @@ fun DesktopSidePanel(
                             mcpManager = mcpManager,
                             chatViewModel = chatViewModel
                         )
+                    }
+                    SidePanelTab.PERSONALIZATION -> {
+                        PersonalizationTabContent()
                     }
                     null -> {
                         Box(

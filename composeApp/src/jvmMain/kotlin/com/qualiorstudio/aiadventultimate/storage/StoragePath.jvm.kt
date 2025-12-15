@@ -31,3 +31,7 @@ actual fun getTodoistProjectsFilePath(): String {
     return File(getDataDirectory(), "todoist_projects.json").absolutePath
 }
 
+actual fun getPersonalizationFilePath(): String {
+    return File(getDataDirectory(), "personalization.json").absolutePath
+}
+

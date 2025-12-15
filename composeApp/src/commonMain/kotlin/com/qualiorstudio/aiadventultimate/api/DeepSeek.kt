@@ -82,7 +82,16 @@ class DeepSeek(
                 throw Exception("API Error: ${response.status.value} - $errorBody")
             }
 
-            response.body<DeepSeekResponse>()
+            val responseBody = response.body<DeepSeekResponse>()
+            println("Response choices count: ${responseBody.choices.size}")
+            responseBody.choices.forEachIndexed { index, choice ->
+                println("Choice[$index]: finish_reason=${choice.finishReason}")
+                println("Choice[$index] message role: ${choice.message.role}")
+                println("Choice[$index] message content: ${choice.message.content?.take(200)}")
+                println("Choice[$index] message content length: ${choice.message.content?.length ?: 0}")
+            }
+            
+            responseBody
         } catch (e: Exception) {
             println("Exception in DeepSeek.sendMessage: ${e.message}")
             e.printStackTrace()

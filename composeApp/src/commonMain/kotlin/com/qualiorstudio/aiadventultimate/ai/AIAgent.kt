@@ -94,13 +94,24 @@ IMPORTANT RULES:
 The context from the knowledge base (RAG) will be clearly marked in the user's message. Pay close attention to it and use it as your primary source when available.
     """.trimIndent()
     
+    private var personalizationContext: String = ""
+    
+    fun updatePersonalizationContext(context: String) {
+        personalizationContext = context
+    }
+    
     private val systemPrompt: String
         get() {
             val basePrompt = customSystemPrompt ?: defaultSystemPrompt
-            return if (projectContext.isNotEmpty()) {
+            val withProject = if (projectContext.isNotEmpty()) {
                 "$basePrompt\n\n$projectContext"
             } else {
                 basePrompt
+            }
+            return if (personalizationContext.isNotEmpty()) {
+                "$withProject\n\n$personalizationContext"
+            } else {
+                withProject
             }
         }
     
@@ -219,9 +230,15 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
         println("=== AIAgent System Prompt ===")
         println("System prompt length: ${finalSystemPrompt.length}")
         println("Has project context: ${projectContext.isNotEmpty()}")
+        println("Has personalization context: ${personalizationContext.isNotEmpty()}")
         if (projectContext.isNotEmpty()) {
             println("Project context: ${projectContext.take(200)}...")
         }
+        if (personalizationContext.isNotEmpty()) {
+            println("Personalization context: ${personalizationContext.take(200)}...")
+        }
+        println("Full system prompt (first 500 chars): ${finalSystemPrompt.take(500)}")
+        println("Full system prompt (last 500 chars): ${finalSystemPrompt.takeLast(500)}")
         
         val messages = mutableListOf(
             DeepSeekMessage(role = "system", content = finalSystemPrompt)
@@ -341,8 +358,18 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
             }
 
             val finalAssistantMessage = response.choices.firstOrNull()?.message
+            println("=== Final Assistant Message ===")
+            println("Message: $finalAssistantMessage")
+            println("Content: ${finalAssistantMessage?.content}")
+            println("Content is null: ${finalAssistantMessage?.content == null}")
+            println("Content is blank: ${finalAssistantMessage?.content?.isBlank()}")
+            
             val finalContent = finalAssistantMessage?.content?.trim()
                 ?: "Sorry, I couldn't generate a response."
+
+            println("=== Final Content ===")
+            println("Final content: $finalContent")
+            println("Final content length: ${finalContent.length}")
 
             if (finalAssistantMessage != null && finalAssistantMessage.content != null) {
                 currentMessages.add(finalAssistantMessage)
@@ -352,7 +379,7 @@ The context from the knowledge base (RAG) will be clearly marked in the user's m
                 .drop(1)
                 .filter { it.role != "system" }
 
-            println("=== Final Response ===")
+            println("=== Final Response Summary ===")
             println("Total iterations: $iterationCount")
             println("Final content length: ${finalContent.length}")
             println("Updated history size: ${updatedHistory.size}")
